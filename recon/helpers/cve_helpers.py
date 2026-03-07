@@ -37,6 +37,9 @@ CPE_MAPPINGS = {
     "uvicorn": ("encode", "uvicorn"),
     "traefik": ("traefik", "traefik"),
     "envoy": ("envoyproxy", "envoy"),
+    "openresty": ("openresty", "openresty"),
+    "deno": ("deno", "deno"),
+    "tengine": ("alibaba", "tengine"),
     # Languages/Runtimes
     "php": ("php", "php"),
     "python": ("python", "python"),
@@ -53,40 +56,96 @@ CPE_MAPPINGS = {
     "elasticsearch": ("elastic", "elasticsearch"),
     "couchdb": ("apache", "couchdb"),
     "memcached": ("memcached", "memcached"),
-    # CMS/Frameworks
+    "sqlite": ("sqlite", "sqlite"),
+    "solr": ("apache", "solr"),
+    "adminer": ("adminer", "adminer"),
+    # CMS
     "wordpress": ("wordpress", "wordpress"),
     "drupal": ("drupal", "drupal"),
     "joomla": ("joomla", "joomla"),
+    "magento": ("adobe", "magento"),
+    "ghost": ("ghost", "ghost"),
+    "typo3": ("typo3", "typo3"),
+    "concrete cms": ("concretecms", "concrete_cms"),
+    "craft cms": ("craftcms", "craft_cms"),
+    "strapi": ("strapi", "strapi"),
+    "umbraco": ("umbraco", "umbraco_cms"),
+    "adobe experience manager": ("adobe", "experience_manager"),
+    "sitecore": ("sitecore", "experience_platform"),
+    "dnn": ("dnnsoftware", "dotnetnuke"),
+    "kentico": ("kentico", "kentico"),
+    # Web Frameworks
     "django": ("djangoproject", "django"),
     "laravel": ("laravel", "laravel"),
     "spring": ("vmware", "spring_framework"),
     "flask": ("palletsprojects", "flask"),
     "express": ("expressjs", "express"),
     "rails": ("rubyonrails", "rails"),
-    # JavaScript
+    "codeigniter": ("codeigniter", "codeigniter"),
+    "symfony": ("sensiolabs", "symfony"),
+    "cakephp": ("cakephp", "cakephp"),
+    "yii": ("yiiframework", "yii"),
+    "nuxt.js": ("nuxt", "nuxt.js"),
+    "struts": ("apache", "struts"),
+    "coldfusion": ("adobe", "coldfusion"),
+    # JavaScript Frameworks & Libraries
     "jquery": ("jquery", "jquery"),
     "angular": ("angular", "angular"),
     "react": ("facebook", "react"),
     "vue": ("vuejs", "vue.js"),
     "bootstrap": ("getbootstrap", "bootstrap"),
     "next.js": ("vercel", "next.js"),
-    # Mail Servers
+    "moment.js": ("momentjs", "moment"),
+    "lodash": ("lodash", "lodash"),
+    "handlebars": ("handlebarsjs", "handlebars"),
+    "ember.js": ("emberjs", "ember.js"),
+    "backbone.js": ("backbonejs", "backbone.js"),
+    "dojo": ("dojotoolkit", "dojo"),
+    "ckeditor": ("ckeditor", "ckeditor"),
+    "tinymce": ("tiny", "tinymce"),
+    "prototype": ("prototypejs", "prototype"),
+    # E-commerce
+    "prestashop": ("prestashop", "prestashop"),
+    "opencart": ("opencart", "opencart"),
+    "oscommerce": ("oscommerce", "oscommerce"),
+    "zen cart": ("zen-cart", "zen_cart"),
+    "woocommerce": ("automattic", "woocommerce"),
+    # Message Boards / Community
+    "discourse": ("discourse", "discourse"),
+    "phpbb": ("phpbb", "phpbb"),
+    "vbulletin": ("vbulletin", "vbulletin"),
+    "mybb": ("mybb", "mybb"),
+    "flarum": ("flarum", "flarum"),
+    "nodebb": ("nodebb", "nodebb"),
+    "mastodon": ("joinmastodon", "mastodon"),
+    "mattermost": ("mattermost", "mattermost_server"),
+    # Wikis
+    "mediawiki": ("mediawiki", "mediawiki"),
+    "confluence": ("atlassian", "confluence_server"),
+    "dokuwiki": ("dokuwiki", "dokuwiki"),
+    "xwiki": ("xwiki", "xwiki"),
+    # Mail Servers / Webmail
     "postfix": ("postfix", "postfix"),
     "exim": ("exim", "exim"),
     "dovecot": ("dovecot", "dovecot"),
+    "zimbra": ("synacor", "zimbra_collaboration_suite"),
+    "squirrelmail": ("squirrelmail", "squirrelmail"),
     # DNS
     "bind": ("isc", "bind"),
     # FTP
     "proftpd": ("proftpd", "proftpd"),
     "vsftpd": ("vsftpd_project", "vsftpd"),
     "pureftpd": ("pureftpd", "pure-ftpd"),
-    # Security / Proxies
+    # Security / Proxies / Network
     "openssh": ("openbsd", "openssh"),
     "openssl": ("openssl", "openssl"),
     "squid": ("squid-cache", "squid"),
     "haproxy": ("haproxy", "haproxy"),
     "varnish": ("varnish-software", "varnish_cache"),
-    # CI/CD & DevOps
+    "kong": ("konghq", "kong_gateway"),
+    "f5 big-ip": ("f5", "big-ip_access_policy_manager"),
+    "pulse secure": ("pulsesecure", "pulse_connect_secure"),
+    # CI/CD, DevOps & Issue Trackers
     "grafana": ("grafana", "grafana"),
     "jenkins": ("jenkins", "jenkins"),
     "gitlab": ("gitlab", "gitlab"),
@@ -95,10 +154,21 @@ CPE_MAPPINGS = {
     "rabbitmq": ("vmware", "rabbitmq"),
     "kafka": ("apache", "kafka"),
     "zookeeper": ("apache", "zookeeper"),
+    "jira": ("atlassian", "jira"),
+    "bitbucket": ("atlassian", "bitbucket"),
+    "bugzilla": ("mozilla", "bugzilla"),
+    "redmine": ("redmine", "redmine"),
+    "gitea": ("gitea", "gitea"),
+    "teamcity": ("jetbrains", "teamcity"),
+    "artifactory": ("jfrog", "artifactory"),
     # Java Application Servers
     "jetty": ("eclipse", "jetty"),
     "wildfly": ("redhat", "wildfly"),
     "passenger": ("phusion", "passenger"),
+    # Hosting Panels
+    "cpanel": ("cpanel", "cpanel"),
+    "plesk": ("plesk", "plesk"),
+    "directadmin": ("directadmin", "directadmin"),
     # Other
     "phpmyadmin": ("phpmyadmin", "phpmyadmin"),
     "webmin": ("webmin", "webmin"),
@@ -303,18 +373,47 @@ def normalize_product_name(name: str) -> str:
         "apache tomcat": "tomcat",
         "apache couchdb": "couchdb", "apache kafka": "kafka",
         "apache zookeeper": "zookeeper",
+        "apache struts": "struts", "apache solr": "solr",
         # Microsoft
         "microsoft-iis": "iis", "microsoft iis": "iis",
         "microsoft-httpapi": "iis",
         # Node/JS
         "node": "node.js", "nodejs": "node.js",
         "nextjs": "next.js",
+        "nuxtjs": "nuxt.js", "nuxt": "nuxt.js",
         "expressjs": "express",
         "ruby on rails": "rails", "rubyonrails": "rails",
         # Databases
         "postgres": "postgresql", "mongo": "mongodb",
         # CMS
         "wp": "wordpress",
+        "concrete5": "concrete cms",
+        "aem": "adobe experience manager",
+        "dotnetnuke": "dnn",
+        "adobe coldfusion": "coldfusion",
+        # Atlassian (Wappalyzer outputs "Atlassian Jira", etc.)
+        "atlassian jira": "jira",
+        "atlassian confluence": "confluence",
+        "atlassian bitbucket": "bitbucket",
+        # JS libraries
+        "moment": "moment.js", "momentjs": "moment.js",
+        "ember": "ember.js", "emberjs": "ember.js",
+        "backbone": "backbone.js", "backbonejs": "backbone.js",
+        "handlebarsjs": "handlebars",
+        "dojo toolkit": "dojo",
+        "prototype.js": "prototype",
+        # E-commerce
+        "zencart": "zen cart",
+        # Webmail / Network
+        "zimbra collaboration suite": "zimbra",
+        "big-ip": "f5 big-ip",
+        "pulse connect secure": "pulse secure",
+        # Hosting
+        "cpanel whm": "cpanel",
+        # Servers
+        "open resty": "openresty",
+        # Community
+        "mattermost server": "mattermost",
         # SSH/FTP
         "ssh": "openssh", "pure-ftpd": "pureftpd",
         # Proxies
@@ -552,8 +651,10 @@ def run_cve_lookup(
     
     # Filter technologies to lookup
     tech_to_lookup = []
-    skip_list = ["ubuntu", "debian", "centos", "linux", "windows", 
-                 "dreamweaver", "frontpage", "html", "css", "aws"]
+    skip_list = ["ubuntu", "debian", "centos", "linux", "windows",
+                 "dreamweaver", "frontpage", "html", "css", "aws",
+                 "cloudflare", "google analytics", "google tag manager",
+                 "facebook pixel", "hotjar", "google font api"]
     
     for tech in technologies:
         name, version = parse_technology_string(tech)
