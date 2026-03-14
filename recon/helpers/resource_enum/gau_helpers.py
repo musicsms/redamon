@@ -6,6 +6,7 @@ Passive URL discovery from web archives using GAU.
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import uuid
@@ -14,6 +15,12 @@ from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse, parse_qs
 
 from .classification import classify_parameter, classify_endpoint
+
+
+def _is_arm64_host() -> bool:
+    """Return True when running on an ARM64 host."""
+    machine = platform.machine().lower()
+    return machine in ("arm64", "aarch64")
 
 
 def _create_temp_dir(prefix: str = "gau") -> Path:
@@ -44,8 +51,13 @@ def pull_gau_docker_image(docker_image: str) -> bool:
     """
     try:
         print(f"    [*] Pulling GAU image: {docker_image}...")
+        pull_cmd = ["docker", "pull"]
+        if _is_arm64_host():
+            pull_cmd.extend(["--platform", "linux/amd64"])
+        pull_cmd.append(docker_image)
+
         result = subprocess.run(
-            ["docker", "pull", docker_image],
+            pull_cmd,
             capture_output=True,
             text=True,
             timeout=300
@@ -117,6 +129,8 @@ def run_gau_for_domain(
 
     # Build GAU command
     cmd = ["docker", "run", "--rm"]
+    if _is_arm64_host():
+        cmd.extend(["--platform", "linux/amd64"])
 
     # Network mode for Tor proxy
     if use_proxy:

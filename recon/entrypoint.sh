@@ -115,7 +115,11 @@ for IMAGE in "${IMAGES[@]}"; do
         echo -e "${GREEN}[+] $IMAGE already pulled${NC}"
     else
         echo -e "${YELLOW}[*] Pulling $IMAGE...${NC}"
-        docker pull "$IMAGE" 2>/dev/null || echo -e "${RED}[!] Failed to pull $IMAGE${NC}"
+        if [[ "$IMAGE" == "sxcurity/gau:latest" ]] && [[ "$(uname -m)" =~ ^(arm64|aarch64)$ ]]; then
+            docker pull --platform linux/amd64 "$IMAGE" 2>/dev/null || echo -e "${RED}[!] Failed to pull $IMAGE${NC}"
+        else
+            docker pull "$IMAGE" 2>/dev/null || echo -e "${RED}[!] Failed to pull $IMAGE${NC}"
+        fi
     fi
 done
 
