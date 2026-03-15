@@ -151,12 +151,12 @@ cd redamon
 cp .env.example .env
 ```
 
-After starting the stack, open **http://localhost:3000/settings** (gear icon in the header) to configure your AI providers. LLM keys and Tavily API key **must** be set from the frontend — they are not read from `.env` or environment variables.
+After starting the stack, open **http://localhost:3000/settings** (gear icon in the header) to configure your AI providers and other API keys. All keys **must** be set from the frontend — they are not read from `.env` or environment variables.
 
 - **LLM Providers** — add API keys for OpenAI, Anthropic, OpenRouter, AWS Bedrock, or any OpenAI-compatible endpoint (Ollama, vLLM, Groq, etc.). Each provider can be tested before saving. The model selector in project settings **dynamically fetches** available models from configured providers.
-- **Tavily API Key** — enables web search for the AI agent ([tavily.com](https://tavily.com))
+- **Other API Keys** — additional service keys (Tavily, Shodan, etc.) can be configured in the same settings page to enable extended agent capabilities.
 
-All AI keys are stored per-user in the database. See the **[AI Model Providers](https://github.com/samugit83/redamon/wiki/AI-Model-Providers)** wiki page for detailed setup instructions.
+All keys are stored per-user in the database. See the **[AI Model Providers](https://github.com/samugit83/redamon/wiki/AI-Model-Providers)** wiki page for detailed setup instructions.
 
 **Optional `.env` keys** (infrastructure only — not for AI providers):
 ```env
