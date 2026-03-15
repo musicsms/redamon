@@ -541,6 +541,22 @@ export default function GraphPage() {
     }
   }, [projectId, currentProject, setCurrentProject])
 
+  const handleModelChange = useCallback(async (modelId: string) => {
+    if (!projectId) return
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentOpenaiModel: modelId }),
+      })
+      if (res.ok && currentProject) {
+        setCurrentProject({ ...currentProject, agentOpenaiModel: modelId })
+      }
+    } catch (error) {
+      console.error('Failed to change model:', error)
+    }
+  }, [projectId, currentProject, setCurrentProject])
+
   const handleStartRecon = useCallback(() => {
     setIsReconModalOpen(true)
   }, [])
@@ -848,6 +864,7 @@ export default function GraphPage() {
         onResetSession={resetSession}
         onSwitchSession={switchSession}
         modelName={currentProject?.agentOpenaiModel}
+        onModelChange={handleModelChange}
         toolPhaseMap={currentProject?.agentToolPhaseMap}
         stealthMode={currentProject?.stealthMode}
         onToggleStealth={handleToggleStealth}

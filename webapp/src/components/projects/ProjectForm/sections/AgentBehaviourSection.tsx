@@ -6,34 +6,13 @@ import { Toggle } from '@/components/ui'
 import { useProject } from '@/providers/ProjectProvider'
 import type { Project } from '@prisma/client'
 import styles from '../ProjectForm.module.css'
+import { type ModelOption, formatContextLength, getDisplayName } from '@/app/graph/components/AIAssistantDrawer/modelUtils'
 
 type FormData = Omit<Project, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'user'>
 
 interface AgentBehaviourSectionProps {
   data: FormData
   updateField: <K extends keyof FormData>(field: K, value: FormData[K]) => void
-}
-
-interface ModelOption {
-  id: string
-  name: string
-  context_length: number | null
-  description: string
-}
-
-function formatContextLength(ctx: number | null): string {
-  if (!ctx) return ''
-  if (ctx >= 1_000_000) return `${(ctx / 1_000_000).toFixed(1)}M`
-  if (ctx >= 1_000) return `${Math.round(ctx / 1_000)}K`
-  return String(ctx)
-}
-
-function getDisplayName(modelId: string, allModels: Record<string, ModelOption[]>): string {
-  for (const models of Object.values(allModels)) {
-    const found = models.find(m => m.id === modelId)
-    if (found) return found.name
-  }
-  return modelId
 }
 
 export function AgentBehaviourSection({ data, updateField }: AgentBehaviourSectionProps) {

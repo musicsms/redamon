@@ -296,6 +296,7 @@
 }
 
 .modelBadge {
+  font-family: inherit;
   font-size: 10px;
   font-weight: var(--font-medium);
   color: var(--text-tertiary);
@@ -304,6 +305,139 @@
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.1);
   line-height: 1;
+  cursor: pointer;
+  outline: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.modelBadge:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--text-secondary);
+}
+
+/* Model Picker Modal */
+.modelModal {
+  max-height: 70%;
+}
+
+.modelModalBody {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modelModalSearch {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border: none;
+  border-bottom: 1px solid var(--border-default);
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+}
+
+.modelModalSearch::placeholder {
+  color: var(--text-tertiary);
+}
+
+.modelModalSearch:focus {
+  background: var(--bg-secondary);
+}
+
+.modelModalManualInput {
+  width: 100%;
+  margin-top: var(--space-1);
+  padding: var(--space-1-5) var(--space-2);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-default);
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+}
+
+.modelList {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.modelListEmpty {
+  padding: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.modelListGroup {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.modelListGroup:last-child {
+  border-bottom: none;
+}
+
+.modelListGroupHeader {
+  padding: var(--space-1-5) var(--space-2);
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  background: var(--bg-tertiary);
+  position: sticky;
+  top: 0;
+}
+
+.modelListOption {
+  padding: var(--space-1-5) var(--space-2);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.modelListOption:hover {
+  background: var(--bg-hover);
+}
+
+.modelListOptionSelected {
+  background: color-mix(in srgb, var(--accent-secondary) 15%, transparent);
+}
+
+.modelListOptionMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.modelListOptionName {
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelListOptionCtx {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px 4px;
+}
+
+.modelListOptionDesc {
+  display: block;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
 }
 
 .title {

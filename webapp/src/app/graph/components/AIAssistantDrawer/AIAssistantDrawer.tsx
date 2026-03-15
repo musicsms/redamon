@@ -16,6 +16,7 @@ import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import styles from './AIAssistantDrawer.module.css'
+import { type ModelOption, formatContextLength, getDisplayName } from './modelUtils'
 import { useAgentWebSocket } from '@/hooks/useAgentWebSocket'
 import {
   MessageType,
@@ -104,6 +105,7 @@ interface AIAssistantDrawerProps {
   onResetSession?: () => string
   onSwitchSession?: (sessionId: string) => void
   modelName?: string
+  onModelChange?: (modelId: string) => void
   toolPhaseMap?: Record<string, string[]>
   stealthMode?: boolean
   onToggleStealth?: (newValue: boolean) => void
@@ -976,6 +978,7 @@ export function AIAssistantDrawer({
   onResetSession,
   onSwitchSession,
   modelName,
+  onModelChange,
   toolPhaseMap,
   stealthMode = false,
   onToggleStealth,
@@ -1097,6 +1100,67 @@ export function AIAssistantDrawer({
   // Settings dropdown & modal state
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false)
   const [settingsModal, setSettingsModal] = useState<'agent' | 'toolmatrix' | 'attack' | null>(null)
+
+  // Model picker modal state
+  const [showModelModal, setShowModelModal] = useState(false)
+  const [modelSearch, setModelSearch] = useState('')
+  const [allModels, setAllModels] = useState<Record<string, ModelOption[]>>({})
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState(false)
+  const modelSearchRef = useRef<HTMLInputElement>(null)
+
+  // Fetch models when model modal opens
+  useEffect(() => {
+    if (!showModelModal) return
+    let cancelled = false
+    setModelsLoading(true)
+    setModelsError(false)
+    const params = userId ? `?userId=${userId}` : ''
+    fetch(`/api/models${params}`)
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to fetch')
+        return r.json()
+      })
+      .then(data => {
+        if (cancelled) return
+        if (data && typeof data === 'object' && !data.error) {
+          setAllModels(data)
+        } else {
+          setModelsError(true)
+        }
+      })
+      .catch(() => { if (!cancelled) setModelsError(true) })
+      .finally(() => { if (!cancelled) setModelsLoading(false) })
+    return () => { cancelled = true }
+  }, [showModelModal, userId])
+
+  // Auto-focus search when model modal opens
+  useEffect(() => {
+    if (showModelModal) {
+      setTimeout(() => modelSearchRef.current?.focus(), 0)
+    } else {
+      setModelSearch('')
+    }
+  }, [showModelModal])
+
+  // Filter models by search
+  const filteredModels: Record<string, ModelOption[]> = {}
+  if (showModelModal) {
+    const lowerSearch = modelSearch.toLowerCase()
+    for (const [provider, models] of Object.entries(allModels)) {
+      const filtered = models.filter(m =>
+        m.id.toLowerCase().includes(lowerSearch) ||
+        m.name.toLowerCase().includes(lowerSearch) ||
+        m.description.toLowerCase().includes(lowerSearch)
+      )
+      if (filtered.length > 0) filteredModels[provider] = filtered
+    }
+  }
+
+  const handleSelectModel = useCallback((id: string) => {
+    onModelChange?.(id)
+    setShowModelModal(false)
+  }, [onModelChange])
   const [projectFormData, setProjectFormData] = useState<Omit<Project, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'user'> | null>(null)
   const settingsDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -3022,7 +3086,9 @@ export function AIAssistantDrawer({
         </div>
 
         {modelName && (
-          <span className={styles.modelBadge}>{formatModelDisplay(modelName)}</span>
+          <button className={styles.modelBadge} onClick={() => setShowModelModal(true)}>
+            {formatModelDisplay(modelName)}
+          </button>
         )}
       </div>
 
@@ -3052,6 +3118,79 @@ export function AIAssistantDrawer({
                   <Loader2 size={24} className={styles.spinner} />
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Model Picker Modal */}
+      {showModelModal && (
+        <div className={styles.settingsModalOverlay} onClick={() => setShowModelModal(false)}>
+          <div className={`${styles.settingsModal} ${styles.modelModal}`} onClick={e => e.stopPropagation()}>
+            <div className={styles.settingsModalHeader}>
+              <h2 className={styles.settingsModalTitle}>Change Model</h2>
+              <button className={styles.settingsModalClose} onClick={() => setShowModelModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className={styles.modelModalBody}>
+              <input
+                ref={modelSearchRef}
+                className={styles.modelModalSearch}
+                type="text"
+                value={modelSearch}
+                onChange={(e) => setModelSearch(e.target.value)}
+                placeholder="Search models..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setShowModelModal(false)
+                }}
+              />
+              <div className={styles.modelList}>
+                {modelsLoading ? (
+                  <div className={styles.modelListEmpty}>
+                    <Loader2 size={16} className={styles.spinner} />
+                    <span>Loading models...</span>
+                  </div>
+                ) : modelsError ? (
+                  <div className={styles.modelListEmpty}>
+                    <span>Failed to load models. Type a model ID manually:</span>
+                    <input
+                      className={styles.modelModalManualInput}
+                      type="text"
+                      value={modelName || ''}
+                      onChange={(e) => onModelChange?.(e.target.value)}
+                      placeholder="e.g. claude-opus-4-6, gpt-5.2, openrouter/meta-llama/llama-4-maverick"
+                    />
+                  </div>
+                ) : Object.keys(filteredModels).length === 0 ? (
+                  <div className={styles.modelListEmpty}>
+                    {modelSearch ? `No models matching "${modelSearch}"` : 'No providers configured'}
+                  </div>
+                ) : (
+                  Object.entries(filteredModels).map(([provider, models]) => (
+                    <div key={provider} className={styles.modelListGroup}>
+                      <div className={styles.modelListGroupHeader}>{provider}</div>
+                      {models.map(model => (
+                        <div
+                          key={model.id}
+                          className={`${styles.modelListOption} ${model.id === modelName ? styles.modelListOptionSelected : ''}`}
+                          onClick={() => handleSelectModel(model.id)}
+                        >
+                          <div className={styles.modelListOptionMain}>
+                            <span className={styles.modelListOptionName}>{model.name}</span>
+                            {model.context_length && (
+                              <span className={styles.modelListOptionCtx}>{formatContextLength(model.context_length)}</span>
+                            )}
+                          </div>
+                          {model.description && (
+                            <span className={styles.modelListOptionDesc}>{model.description}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
