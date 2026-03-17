@@ -4375,34 +4375,55 @@ class Neo4jClient:
                 except Exception as e:
                     stats["errors"].append(f"Failed to enrich IP {ip}: {e}")
 
-            # ── 2. Reverse DNS → Subdomain nodes ──
+            # ── 2. Reverse DNS → Subdomain or ExternalDomain nodes ──
             for ip, hostnames in shodan_data.get("reverse_dns", {}).items():
                 for hostname in hostnames:
                     if not hostname:
                         continue
                     try:
-                        session.run(
-                            """
-                            MERGE (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
-                            ON CREATE SET s.source = 'shodan_rdns', s.discovered_at = datetime(),
-                                          s.updated_at = datetime()
-                            MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
-                            MERGE (s)-[:RESOLVES_TO {record_type: 'A', timestamp: datetime()}]->(i)
-                            """,
-                            name=hostname, ip=ip, user_id=user_id, project_id=project_id
-                        )
-                        stats["subdomains_created"] += 1
-                        stats["relationships_created"] += 1
+                        # Check if hostname is in scope (belongs to target domain)
+                        is_in_scope = domain and (hostname == domain or hostname.endswith("." + domain))
 
-                        # Link to domain if we know it
-                        if domain:
+                        if is_in_scope:
                             session.run(
                                 """
-                                MATCH (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
-                                MATCH (d:Domain {name: $domain, user_id: $user_id, project_id: $project_id})
-                                MERGE (s)-[:BELONGS_TO]->(d)
+                                MERGE (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
+                                ON CREATE SET s.source = 'shodan_rdns', s.discovered_at = datetime(),
+                                              s.updated_at = datetime()
+                                MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
+                                MERGE (s)-[:RESOLVES_TO {record_type: 'A', timestamp: datetime()}]->(i)
                                 """,
-                                name=hostname, domain=domain,
+                                name=hostname, ip=ip, user_id=user_id, project_id=project_id
+                            )
+                            stats["subdomains_created"] += 1
+                            stats["relationships_created"] += 1
+
+                            # Link to domain
+                            if domain:
+                                session.run(
+                                    """
+                                    MATCH (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
+                                    MATCH (d:Domain {name: $domain, user_id: $user_id, project_id: $project_id})
+                                    MERGE (s)-[:BELONGS_TO]->(d)
+                                    """,
+                                    name=hostname, domain=domain,
+                                    user_id=user_id, project_id=project_id
+                                )
+                                stats["relationships_created"] += 1
+                        else:
+                            # Out-of-scope hostname → ExternalDomain
+                            session.run(
+                                """
+                                MERGE (ed:ExternalDomain {domain: $ed_domain, user_id: $user_id, project_id: $project_id})
+                                ON CREATE SET ed.first_seen_at = datetime()
+                                SET ed.sources = coalesce(ed.sources, []) + CASE WHEN NOT 'shodan_rdns' IN coalesce(ed.sources, []) THEN ['shodan_rdns'] ELSE [] END,
+                                    ed.ips_seen = coalesce(ed.ips_seen, []) + CASE WHEN NOT $ip IN coalesce(ed.ips_seen, []) THEN [$ip] ELSE [] END,
+                                    ed.updated_at = datetime()
+                                WITH ed
+                                MATCH (d:Domain {name: $domain, user_id: $user_id, project_id: $project_id})
+                                MERGE (ed)-[:DISCOVERED_BY]->(d)
+                                """,
+                                ed_domain=hostname, ip=ip, domain=domain,
                                 user_id=user_id, project_id=project_id
                             )
                             stats["relationships_created"] += 1
@@ -4416,28 +4437,48 @@ class Neo4jClient:
                 if not sub_name:
                     continue
                 fqdn = f"{sub_name}.{domain}" if domain and not sub_name.endswith(domain) else sub_name
-                try:
-                    session.run(
-                        """
-                        MERGE (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
-                        ON CREATE SET s.source = 'shodan_dns', s.discovered_at = datetime(),
-                                      s.updated_at = datetime()
-                        """,
-                        name=fqdn, user_id=user_id, project_id=project_id
-                    )
-                    stats["subdomains_created"] += 1
 
-                    if domain:
+                # Check if the FQDN is in scope
+                is_in_scope = domain and (fqdn == domain or fqdn.endswith("." + domain))
+
+                try:
+                    if is_in_scope:
                         session.run(
                             """
-                            MATCH (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
-                            MATCH (d:Domain {name: $domain, user_id: $user_id, project_id: $project_id})
-                            MERGE (s)-[:BELONGS_TO]->(d)
+                            MERGE (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
+                            ON CREATE SET s.source = 'shodan_dns', s.discovered_at = datetime(),
+                                          s.updated_at = datetime()
                             """,
-                            name=fqdn, domain=domain,
+                            name=fqdn, user_id=user_id, project_id=project_id
+                        )
+                        stats["subdomains_created"] += 1
+
+                        if domain:
+                            session.run(
+                                """
+                                MATCH (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
+                                MATCH (d:Domain {name: $domain, user_id: $user_id, project_id: $project_id})
+                                MERGE (s)-[:BELONGS_TO]->(d)
+                                """,
+                                name=fqdn, domain=domain,
+                                user_id=user_id, project_id=project_id
+                            )
+                            stats["relationships_created"] += 1
+                    else:
+                        # Out-of-scope → ExternalDomain
+                        session.run(
+                            """
+                            MERGE (ed:ExternalDomain {domain: $ed_domain, user_id: $user_id, project_id: $project_id})
+                            ON CREATE SET ed.first_seen_at = datetime()
+                            SET ed.sources = coalesce(ed.sources, []) + CASE WHEN NOT 'shodan_dns' IN coalesce(ed.sources, []) THEN ['shodan_dns'] ELSE [] END,
+                                ed.updated_at = datetime()
+                            WITH ed
+                            MATCH (d:Domain {name: $domain, user_id: $user_id, project_id: $project_id})
+                            MERGE (ed)-[:DISCOVERED_BY]->(d)
+                            """,
+                            ed_domain=fqdn, domain=domain,
                             user_id=user_id, project_id=project_id
                         )
-                        stats["relationships_created"] += 1
 
                 except Exception as e:
                     stats["errors"].append(f"Failed to create subdomain {fqdn}: {e}")
@@ -4586,22 +4627,38 @@ class Neo4jClient:
                 asn_name = entry.get("asn_name", "")
                 country = entry.get("country", "")
 
-                # Create/update subdomain node
+                # Create/update subdomain or external domain node
                 if subdomain and subdomain != domain and subdomain not in seen_subs:
                     seen_subs.add(subdomain)
+                    is_in_scope = domain and (subdomain == domain or subdomain.endswith("." + domain))
                     try:
-                        session.run(
-                            """
-                            MERGE (d:Domain {name: $domain, user_id: $uid, project_id: $pid})
-                            MERGE (s:Subdomain {name: $subdomain, user_id: $uid, project_id: $pid})
-                            ON CREATE SET s.discovered_by = 'urlscan', s.updated_at = datetime()
-                            MERGE (d)-[:HAS_SUBDOMAIN]->(s)
-                            """,
-                            domain=domain, subdomain=subdomain,
-                            uid=user_id, pid=project_id
-                        )
-                        stats["subdomains_created"] += 1
-                        stats["relationships_created"] += 1
+                        if is_in_scope:
+                            session.run(
+                                """
+                                MERGE (d:Domain {name: $domain, user_id: $uid, project_id: $pid})
+                                MERGE (s:Subdomain {name: $subdomain, user_id: $uid, project_id: $pid})
+                                ON CREATE SET s.discovered_by = 'urlscan', s.updated_at = datetime()
+                                MERGE (d)-[:HAS_SUBDOMAIN]->(s)
+                                """,
+                                domain=domain, subdomain=subdomain,
+                                uid=user_id, pid=project_id
+                            )
+                            stats["subdomains_created"] += 1
+                            stats["relationships_created"] += 1
+                        else:
+                            session.run(
+                                """
+                                MERGE (ed:ExternalDomain {domain: $ed_domain, user_id: $uid, project_id: $pid})
+                                ON CREATE SET ed.first_seen_at = datetime()
+                                SET ed.sources = coalesce(ed.sources, []) + CASE WHEN NOT 'urlscan' IN coalesce(ed.sources, []) THEN ['urlscan'] ELSE [] END,
+                                    ed.updated_at = datetime()
+                                WITH ed
+                                MATCH (d:Domain {name: $domain, user_id: $uid, project_id: $pid})
+                                MERGE (ed)-[:DISCOVERED_BY]->(d)
+                                """,
+                                ed_domain=subdomain, domain=domain,
+                                uid=user_id, pid=project_id
+                            )
                     except Exception as e:
                         stats["errors"].append(f"Subdomain {subdomain}: {e}")
 

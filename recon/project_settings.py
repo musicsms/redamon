@@ -314,6 +314,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'SUBFINDER_MAX_RESULTS': 5000,
     'SUBFINDER_DOCKER_IMAGE': 'projectdiscovery/subfinder:latest',
 
+    # Amass (OWASP subdomain enumeration)
+    'AMASS_ENABLED': False,
+    'AMASS_MAX_RESULTS': 5000,
+    'AMASS_TIMEOUT': 10,
+    'AMASS_ACTIVE': False,
+    'AMASS_BRUTE': False,
+    'AMASS_DOCKER_IMAGE': 'caffix/amass:latest',
+
     # Rules of Engagement (recon-relevant fields only)
     'ROE_ENABLED': False,
     'ROE_EXCLUDED_HOSTS': [],
@@ -603,6 +611,12 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['SUBFINDER_ENABLED'] = project.get('subfinderEnabled', DEFAULT_SETTINGS['SUBFINDER_ENABLED'])
     settings['SUBFINDER_MAX_RESULTS'] = project.get('subfinderMaxResults', DEFAULT_SETTINGS['SUBFINDER_MAX_RESULTS'])
     settings['SUBFINDER_DOCKER_IMAGE'] = project.get('subfinderDockerImage', DEFAULT_SETTINGS['SUBFINDER_DOCKER_IMAGE'])
+    settings['AMASS_ENABLED'] = project.get('amassEnabled', DEFAULT_SETTINGS['AMASS_ENABLED'])
+    settings['AMASS_MAX_RESULTS'] = project.get('amassMaxResults', DEFAULT_SETTINGS['AMASS_MAX_RESULTS'])
+    settings['AMASS_TIMEOUT'] = project.get('amassTimeout', DEFAULT_SETTINGS['AMASS_TIMEOUT'])
+    settings['AMASS_ACTIVE'] = project.get('amassActive', DEFAULT_SETTINGS['AMASS_ACTIVE'])
+    settings['AMASS_BRUTE'] = project.get('amassBrute', DEFAULT_SETTINGS['AMASS_BRUTE'])
+    settings['AMASS_DOCKER_IMAGE'] = project.get('amassDockerImage', DEFAULT_SETTINGS['AMASS_DOCKER_IMAGE'])
 
     # Fetch Shodan API key from user's global settings
     shodan_any = any([
@@ -781,6 +795,9 @@ def apply_stealth_overrides(settings: dict[str, Any]) -> dict[str, Any]:
     settings['HACKERTARGET_MAX_RESULTS'] = min(settings.get('HACKERTARGET_MAX_RESULTS', 5000), 100)
     settings['KNOCKPY_RECON_MAX_RESULTS'] = min(settings.get('KNOCKPY_RECON_MAX_RESULTS', 5000), 100)
     settings['SUBFINDER_MAX_RESULTS'] = min(settings.get('SUBFINDER_MAX_RESULTS', 5000), 100)
+    settings['AMASS_ACTIVE'] = False
+    settings['AMASS_BRUTE'] = False
+    settings['AMASS_MAX_RESULTS'] = min(settings.get('AMASS_MAX_RESULTS', 5000), 100)
 
     # --- Security Checks: disable active checks, keep passive ones ---
     # Active checks (make network connections to target)

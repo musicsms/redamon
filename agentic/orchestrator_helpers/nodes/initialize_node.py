@@ -41,6 +41,30 @@ def _build_guardrail_block(user_id, project_id, session_id, target_desc, reason)
     }
 
 
+def _build_guardrail_error(user_id, project_id, session_id, target_desc, error) -> dict:
+    """Build state update when the guardrail check itself fails (LLM error)."""
+    return {
+        "messages": [AIMessage(content=(
+            f"**Scope Guardrail: Check Failed**\n\n"
+            f"The guardrail could not verify whether `{target_desc}` is authorized for scanning "
+            f"because the LLM check encountered an error.\n\n"
+            f"**Error:** {error}\n\n"
+            f"**What to do:**\n"
+            f"- Verify your LLM model is correctly configured (must be a chat model)\n"
+            f"- Check that your API key is valid and the provider is reachable\n"
+            f"- Check the agent logs for more details\n\n"
+            f"The agent uses a fail-closed policy — it will not proceed until the guardrail "
+            f"can successfully verify the target."
+        ))],
+        "task_complete": True,
+        "completion_reason": f"Guardrail check failed: {error}",
+        "_guardrail_blocked": True,
+        "user_id": user_id,
+        "project_id": project_id,
+        "session_id": session_id,
+    }
+
+
 async def _run_scope_guardrail(llm, user_id, project_id, session_id) -> dict | None:
     """Run LLM-based guardrail check on the project's target scope.
 
@@ -81,10 +105,8 @@ async def _run_scope_guardrail(llm, user_id, project_id, session_id) -> dict | N
         logger.error(
             f"[{user_id}/{project_id}/{session_id}] Scope guardrail error (fail closed): {e}"
         )
-        return _build_guardrail_block(
-            user_id, project_id, session_id, target_desc,
-            "Guardrail verification failed — cannot confirm target is authorized. "
-            "Please check agent logs and LLM configuration."
+        return _build_guardrail_error(
+            user_id, project_id, session_id, target_desc, str(e)
         )
 
     return None

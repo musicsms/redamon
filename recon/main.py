@@ -1058,13 +1058,26 @@ def run_domain_recon(target: str, anonymous: bool = False, bruteforce: bool = Fa
     # Port scan stats
     if "port_scan" in SCAN_MODULES and "port_scan" in combined_result:
         port_summary = combined_result["port_scan"].get("summary", {})
-        print(f"[+] Open ports: {port_summary.get('total_open_ports', 0)}")
-    
+        naabu_ports = port_summary.get('total_open_ports', 0)
+        print(f"[+] Open ports: {naabu_ports}")
+
     # HTTP probe stats
     if "http_probe" in SCAN_MODULES and "http_probe" in combined_result:
         http_summary = combined_result["http_probe"].get("summary", {})
-        print(f"[+] Live URLs: {http_summary.get('live_urls', 0)}")
+        live_urls = http_summary.get('live_urls', 0)
+        print(f"[+] Live URLs: {live_urls}")
         print(f"[+] Technologies: {http_summary.get('technology_count', 0)}")
+        # Report httpx-discovered service ports when Naabu found none
+        if live_urls > 0 and "port_scan" in combined_result:
+            naabu_ports_count = combined_result["port_scan"].get("summary", {}).get("total_open_ports", 0)
+            if naabu_ports_count == 0:
+                from urllib.parse import urlparse
+                httpx_ports = set()
+                for url in combined_result["http_probe"].get("by_url", {}):
+                    p = urlparse(url)
+                    httpx_ports.add(p.port or (443 if p.scheme == "https" else 80))
+                if httpx_ports:
+                    print(f"[+] Service ports (from httpx): {', '.join(str(p) for p in sorted(httpx_ports))}")
 
     # Check if active scans were skipped
     active_scans_skipped = combined_result.get("metadata", {}).get("active_scans_skipped", False)
@@ -1424,9 +1437,9 @@ def main():
     # Port scan stats
     if "port_scan" in SCAN_MODULES and "port_scan" in domain_result:
         port_summary = domain_result["port_scan"].get("summary", {})
-        ports = port_summary.get('total_open_ports', 0)
+        naabu_ports = port_summary.get('total_open_ports', 0)
         hosts = port_summary.get('hosts_with_open_ports', 0)
-        print(f"  Port Scan: {hosts} hosts, {ports} ports")
+        print(f"  Port Scan: {hosts} hosts, {naabu_ports} ports")
     elif "port_scan" not in SCAN_MODULES:
         print("  Port Scan: SKIPPED")
 
@@ -1436,6 +1449,15 @@ def main():
         live = http_summary.get('live_urls', 0)
         techs = http_summary.get('technology_count', 0)
         print(f"  HTTP Probe: {live} live URLs, {techs} technologies")
+        if live > 0 and "port_scan" in domain_result:
+            if domain_result["port_scan"].get("summary", {}).get("total_open_ports", 0) == 0:
+                from urllib.parse import urlparse
+                httpx_ports = set()
+                for url in domain_result.get("http_probe", {}).get("by_url", {}):
+                    p = urlparse(url)
+                    httpx_ports.add(p.port or (443 if p.scheme == "https" else 80))
+                if httpx_ports:
+                    print(f"  Service ports (httpx): {', '.join(str(p) for p in sorted(httpx_ports))}")
     elif "http_probe" not in SCAN_MODULES:
         print("  HTTP Probe: SKIPPED")
 

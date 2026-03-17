@@ -11,6 +11,7 @@ import re
 import glob
 import json
 import time
+import shutil
 import dns.resolver
 import dns.reversename
 from pathlib import Path
@@ -57,11 +58,14 @@ def get_proxychains_prefix(anonymous: bool) -> list:
     return []
 
 
-def get_passive_subdomains(domain: str, session, settings: dict = None) -> set:
-    """Combine crt.sh and HackerTarget passive discovery."""
+def get_passive_subdomains(domain: str, session, settings: dict = None) -> dict:
+    """Combine crt.sh and HackerTarget passive discovery.
+
+    Returns dict {subdomain: set_of_sources} for per-source attribution.
+    """
     if settings is None:
         settings = {}
-    subdomains = set()
+    sourced = {}  # subdomain -> set of source labels
 
     # crt.sh
     if settings.get('CRTSH_ENABLED', True):
@@ -79,7 +83,8 @@ def get_passive_subdomains(domain: str, session, settings: dict = None) -> set:
                     crtsh_subs = set(sorted(crtsh_subs)[:max_results])
                     print(f"[*] crt.sh: capped at {max_results} results")
                 print(f"[+] crt.sh: {len(crtsh_subs)} found")
-                subdomains.update(crtsh_subs)
+                for s in crtsh_subs:
+                    sourced.setdefault(s, set()).add("crt.sh")
         except Exception as e:
             print(f"[!] crt.sh error: {e}")
     else:
@@ -100,13 +105,14 @@ def get_passive_subdomains(domain: str, session, settings: dict = None) -> set:
                     ht_subs = set(sorted(ht_subs)[:max_results])
                     print(f"[*] HackerTarget: capped at {max_results} results")
                 print(f"[+] HackerTarget: {len(ht_subs)} found")
-                subdomains.update(ht_subs)
+                for s in ht_subs:
+                    sourced.setdefault(s, set()).add("hackertarget")
         except Exception as e:
             print(f"[!] HackerTarget error: {e}")
     else:
         print(f"[-] HackerTarget: disabled")
 
-    return subdomains
+    return sourced
 
 
 def run_knockpy(domain: str, proxychains_prefix: list, bruteforce: bool = False, settings: dict = None) -> set:
@@ -220,6 +226,84 @@ def run_subfinder(domain: str, settings: dict = None) -> set:
         print("[!] Docker not found — cannot run Subfinder")
     except Exception as e:
         print(f"[!] Subfinder error: {e}")
+
+    return subdomains
+
+
+def run_amass(domain: str, settings: dict = None) -> set:
+    """Run OWASP Amass subdomain enumeration via Docker."""
+    if settings is None:
+        settings = {}
+
+    if not settings.get('AMASS_ENABLED', False):
+        print(f"[-] Amass: disabled")
+        return set()
+
+    docker_image = settings.get('AMASS_DOCKER_IMAGE', 'caffix/amass:latest')
+    max_results = settings.get('AMASS_MAX_RESULTS', 5000)
+    timeout_min = settings.get('AMASS_TIMEOUT', 10)
+    active = settings.get('AMASS_ACTIVE', False)
+    brute = settings.get('AMASS_BRUTE', False)
+
+    mode_parts = ["active" if active else "passive"]
+    if brute:
+        mode_parts.append("brute")
+    mode = "+".join(mode_parts)
+    print(f"[*] Running Amass ({mode})...")
+
+    # Amass v4 needs a writable config dir
+    amass_temp = Path("/tmp/redamon/.amass_temp")
+    amass_temp.mkdir(parents=True, exist_ok=True)
+
+    command = [
+        'docker', 'run', '--rm',
+        '-v', f'{amass_temp}:/root/.config/amass',
+        docker_image,
+        'enum', '-d', domain,
+        '-timeout', str(timeout_min),
+    ]
+
+    if active:
+        command.append('-active')
+    if brute:
+        command.append('-brute')
+
+    subdomains = set()
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True,
+            timeout=(timeout_min * 60) + 120
+        )
+
+        # Output format: "name (FQDN) --> record_type --> target (FQDN)"
+        # Capture ALL FQDNs per line (both source and target can be subdomains)
+        fqdn_pattern = re.compile(r'([\w.\-]+)\s+\(FQDN\)')
+        for line in result.stdout.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            for match in fqdn_pattern.finditer(line):
+                host = match.group(1).strip().lower()
+                if host:
+                    subdomains.add(host)
+
+        if len(subdomains) > max_results:
+            subdomains = set(sorted(subdomains)[:max_results])
+            print(f"[*] Amass: capped at {max_results} results")
+
+        if subdomains:
+            print(f"[+] Amass: {len(subdomains)} found")
+        else:
+            print(f"[*] Amass: 0 found")
+
+    except subprocess.TimeoutExpired:
+        print("[!] Amass timed out")
+    except FileNotFoundError:
+        print("[!] Docker not found — cannot run Amass")
+    except Exception as e:
+        print(f"[!] Amass error: {e}")
+    finally:
+        shutil.rmtree(amass_temp, ignore_errors=True)
 
     return subdomains
 
@@ -431,19 +515,31 @@ def discover_subdomains(domain: str, anonymous: bool = False, bruteforce: bool =
     pc_prefix = get_proxychains_prefix(anonymous)
     
     # Subdomain Discovery
-    passive = get_passive_subdomains(domain, session, settings=settings)
+    passive_sourced = get_passive_subdomains(domain, session, settings=settings)
     subfinder_subs = run_subfinder(domain, settings=settings)
+    amass_subs = run_amass(domain, settings=settings)
     active = run_knockpy(domain, pc_prefix, bruteforce, settings=settings)
 
     # Combine, filter, sort — collect out-of-scope domains for situational awareness
-    all_subs = passive.union(subfinder_subs).union(active)
+    # Track ALL sources per subdomain for accurate external domain attribution
+    sourced_subs = {}  # domain -> set of source labels
+    for s, sources in passive_sourced.items():
+        sourced_subs.setdefault(s, set()).update(sources)
+    for s in subfinder_subs:
+        sourced_subs.setdefault(s, set()).add("subfinder")
+    for s in amass_subs:
+        sourced_subs.setdefault(s, set()).add("amass")
+    for s in active:
+        sourced_subs.setdefault(s, set()).add("knockpy")
+
     filtered_subs = []
     external_domain_entries = []
-    for s in all_subs:
+    for s, sources in sourced_subs.items():
         if s == domain or s.endswith("." + domain):
             filtered_subs.append(s)
         elif s and '@' not in s:  # non-empty, out-of-scope (skip email addresses from crt.sh)
-            external_domain_entries.append({"domain": s, "source": "cert_discovery"})
+            for source in sources:
+                external_domain_entries.append({"domain": s, "source": source})
     all_subs = sorted(filtered_subs)
 
     # Build result structure

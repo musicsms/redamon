@@ -76,10 +76,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Entrypoint**: `projectdiscovery/subfinder:latest` added to Docker image pre-pull list
   - Results merge into existing subdomain flow — no graph schema changes needed
 
-- **Compact Subdomain Discovery UI** — passive subdomain source toggles (crt.sh, HackerTarget, Subfinder, Knockpy) now display the tool name, max results input, and toggle on a single row instead of separate expandable sections
+- **Amass Integration** — OWASP Amass subdomain enumeration added to the recon pipeline as a new passive/active discovery source. Queries 50+ data sources (certificate transparency logs, DNS databases, web archives, WHOIS records) via the official Amass Docker image. Full multi-layer integration:
+  - **Backend**: `run_amass()` in `domain_recon.py` using Docker-in-Docker pattern with configurable active mode, brute force, timeout, and max results capping
+  - **Settings**: `amassEnabled` (default: false), `amassMaxResults` (default: 5000), `amassTimeout` (default: 10 min), `amassActive` (default: false), `amassBrute` (default: false), `amassDockerImage` across Prisma schema, project settings, and defaults
+  - **Frontend**: compact inline toggle with max results input in the passive sources section, plus dedicated Amass Active Mode and Amass Bruteforce toggles in the active discovery section with time estimate warning
+  - **Stealth mode**: active and brute force forced off, max results capped to 100
+  - **Entrypoint**: `caffix/amass:latest` added to Docker image pre-pull list
+  - Results merge into existing subdomain flow with per-source attribution — no graph schema changes needed
+
+- **Per-source Subdomain Attribution** — subdomain discovery now tracks which tool found each subdomain (crt.sh, hackertarget, subfinder, amass, knockpy). External domain entries carry accurate per-source labels instead of generic `cert_discovery`. `get_passive_subdomains()` returns `dict{subdomain: set_of_sources}` instead of a flat set
+
+- **Compact Subdomain Discovery UI** — passive subdomain source toggles (crt.sh, HackerTarget, Subfinder, Amass, Knockpy) now display the tool name, max results input, and toggle on a single row instead of separate expandable sections
 
 - **Discovery & OSINT Tab** — new unified tab in the project form replacing the previous scattered tool placement. Groups all passive and active discovery tools in a single section:
-  - **Subdomain Discovery** — passive sources (crt.sh, HackerTarget, Subfinder, Knockpy Recon) and active brute-forcing (Knockpy Bruteforce), plus DNS settings (WHOIS/DNS retries)
+  - **Subdomain Discovery** — passive sources (crt.sh, HackerTarget, Subfinder, Amass, Knockpy Recon) and active discovery (Knockpy Bruteforce, Amass Active/Brute), plus DNS settings (WHOIS/DNS retries)
   - **Shodan OSINT Enrichment** — moved from the Integrations tab into Discovery & OSINT, reflecting its role as a core discovery tool rather than an external integration. All four toggles (Host Lookup, Reverse DNS, Domain DNS, Passive CVEs) remain unchanged
   - **URLScan.io Enrichment** — new section with passive badge, max results config, and API key status
   - **Node Info Tooltips** — each section header now has a waypoints icon that shows which graph node types the tool creates (via `NodeInfoTooltip` component and `nodeMapping.ts`)

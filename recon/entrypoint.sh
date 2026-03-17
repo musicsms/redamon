@@ -109,6 +109,7 @@ IMAGES=(
     "projectdiscovery/nuclei:latest"
     "projectdiscovery/subfinder:latest"
     "sxcurity/gau:latest"
+    "caffix/amass:latest"
 )
 
 for IMAGE in "${IMAGES[@]}"; do

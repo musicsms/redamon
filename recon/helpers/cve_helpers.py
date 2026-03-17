@@ -649,18 +649,23 @@ def run_cve_lookup(
             for product in split_server_header(server):
                 technologies.add(product)
     
-    # Filter technologies to lookup
+    # Filter and deduplicate technologies to lookup
     tech_to_lookup = []
+    seen_normalized = set()
     skip_list = ["ubuntu", "debian", "centos", "linux", "windows",
                  "dreamweaver", "frontpage", "html", "css", "aws",
                  "cloudflare", "google analytics", "google tag manager",
                  "facebook pixel", "hotjar", "google font api"]
-    
+
     for tech in technologies:
         name, version = parse_technology_string(tech)
         name = normalize_product_name(name)
         if not version or name in skip_list:
             continue
+        key = (name.lower(), version.lower())
+        if key in seen_normalized:
+            continue
+        seen_normalized.add(key)
         tech_to_lookup.append(tech)
     
     print(f"\n[*] Technologies with versions: {len(tech_to_lookup)}")

@@ -146,7 +146,51 @@ export function SubdomainDiscoverySection({ data, updateField }: SubdomainDiscov
                 onChange={(checked) => updateField('knockpyReconEnabled', checked)}
               />
             </div>
+
+            <div className={styles.toggleRowCompact}>
+              <div className={styles.toggleRowCompactInfo}>
+                <span className={styles.toggleLabelLg}>Amass</span>
+                <p className={styles.toggleDescription}>
+                  OWASP Amass — subdomain enumeration using 50+ data sources (certificate logs, DNS databases, web archives, WHOIS)
+                </p>
+              </div>
+              {data.amassEnabled && (
+                <>
+                  <span className={styles.toggleRowCompactLabel}>Max</span>
+                  <input
+                    type="number"
+                    className={`textInput ${styles.toggleRowCompactInput}`}
+                    value={data.amassMaxResults}
+                    onChange={(e) => updateField('amassMaxResults', parseInt(e.target.value) || 5000)}
+                    min={1}
+                    max={50000}
+                  />
+                </>
+              )}
+              <Toggle
+                checked={data.amassEnabled}
+                onChange={(checked) => updateField('amassEnabled', checked)}
+              />
+            </div>
           </div>
+
+          {data.amassEnabled && (
+            <div className={styles.subSection}>
+              <div className={styles.fieldRow}>
+                <div className={styles.fieldGroup}>
+                  <label className={styles.fieldLabel}>Amass Timeout (minutes)</label>
+                  <input
+                    type="number"
+                    className="textInput"
+                    value={data.amassTimeout}
+                    onChange={(e) => updateField('amassTimeout', parseInt(e.target.value) || 10)}
+                    min={1}
+                    max={120}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className={styles.subSection}>
             <h3 className={styles.subSectionTitle}>Discovery <span className={styles.badgeActive}>Active</span></h3>
@@ -162,6 +206,35 @@ export function SubdomainDiscoverySection({ data, updateField }: SubdomainDiscov
               <Toggle
                 checked={data.useBruteforceForSubdomains}
                 onChange={(checked) => updateField('useBruteforceForSubdomains', checked)}
+              />
+            </div>
+
+            <div className={styles.toggleRow}>
+              <div>
+                <span className={styles.toggleLabel}>Amass Active Mode</span>
+                <p className={styles.toggleDescription}>
+                  Enable zone transfers and certificate name grabs — sends DNS queries directly to target
+                </p>
+              </div>
+              <Toggle
+                checked={data.amassActive}
+                onChange={(checked) => updateField('amassActive', checked)}
+                disabled={!data.amassEnabled}
+              />
+            </div>
+
+            <div className={styles.toggleRow}>
+              <div>
+                <span className={styles.toggleLabel}>Amass Bruteforce</span>
+                <p className={styles.toggleDescription}>
+                  DNS brute forcing after passive enumeration — significantly increases scan time
+                </p>
+                <TimeEstimate estimate="+10-60 min depending on target size" />
+              </div>
+              <Toggle
+                checked={data.amassBrute}
+                onChange={(checked) => updateField('amassBrute', checked)}
+                disabled={!data.amassEnabled}
               />
             </div>
           </div>

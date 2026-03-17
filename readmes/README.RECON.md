@@ -213,7 +213,7 @@ sequenceDiagram
 
     Note over Recon: Phase 1: Domain Discovery (Python native)
     Recon->>Recon: WHOIS lookup
-    Recon->>Recon: crt.sh + HackerTarget + Subfinder
+    Recon->>Recon: crt.sh + HackerTarget + Subfinder + Amass
     Recon->>Recon: DNS resolution
 
     Note over Recon: Phase 1b: OSINT Enrichment (Python native)
@@ -329,17 +329,20 @@ flowchart TB
             CRT[crt.sh<br/>Certificate Transparency]
             HT[HackerTarget API<br/>DNS records]
             SF[Subfinder<br/>50+ passive sources]
+            Amass[Amass<br/>50+ data sources]
             Knock[Knockpy<br/>Bruteforce]
         end
 
         SubD --> CRT
         SubD --> HT
         SubD --> SF
+        SubD --> Amass
         SubD --> Knock
 
         CRT --> Merge[Merge & Dedupe]
         HT --> Merge
         SF --> Merge
+        Amass --> Merge
         Knock --> Merge
 
         Merge --> DNS[DNS Resolution<br/>A, AAAA, MX, NS, TXT, CNAME]
@@ -533,6 +536,7 @@ flowchart LR
         CRT[crt.sh<br/>CT logs]
         HT[HackerTarget<br/>DNS search]
         SF[Subfinder<br/>50+ sources]
+        Amass[Amass<br/>50+ data sources]
         Knock[Knockpy<br/>Bruteforce]
         DNS[DNS Resolver<br/>All record types]
     end
@@ -546,11 +550,13 @@ flowchart LR
     Domain --> WHOIS
     Domain --> CRT
     Domain --> HT
+    Domain --> Amass
     Domain --> Knock
 
     WHOIS --> DNS
     CRT --> DNS
     HT --> DNS
+    Amass --> DNS
     Knock --> DNS
 
     DNS --> Subs
@@ -561,7 +567,7 @@ flowchart LR
 | What It Does | Output |
 |--------------|--------|
 | **WHOIS lookup** | Registrar, creation date, owner info |
-| **Subdomain discovery** | Finds subdomains via passive sources |
+| **Subdomain discovery** | Finds subdomains via passive sources (crt.sh, HackerTarget, Subfinder, Amass) |
 | **DNS enumeration** | A, AAAA, MX, NS, TXT, CNAME records |
 | **IP resolution** | Maps all discovered hostnames to IPs |
 
@@ -924,6 +930,7 @@ flowchart TB
 | DNS | <1 second | Instant |
 | Shodan | 5-15 seconds | Passive, per-IP queries |
 | URLScan | 5-20 seconds | Passive, API rate-limited |
+| Amass | 1-10 minutes | Passive; longer with active/brute |
 | Naabu | 5-10 seconds | 1000 ports |
 | httpx | 10-30 seconds | All options |
 | Katana | 1-5 minutes | Crawl depth 3 |
@@ -980,6 +987,7 @@ docker-compose run --rm recon python /app/recon/main.py
 | Nuclei | `projectdiscovery/nuclei:latest` | Vuln scanning |
 | Katana | `projectdiscovery/katana:latest` | Web crawling |
 | GAU | `sxcurity/gau:latest` | URL discovery |
+| Amass | `caffix/amass:latest` | Subdomain enumeration |
 
 ---
 

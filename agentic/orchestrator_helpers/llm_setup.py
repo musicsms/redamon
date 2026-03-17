@@ -120,7 +120,6 @@ def setup_llm(
             api_key=openai_compat_api_key or "ollama",
             base_url=openai_compat_base_url,
             temperature=0,
-            max_tokens=16384,
         )
 
     elif provider == "openrouter":
@@ -133,7 +132,6 @@ def setup_llm(
             api_key=openrouter_api_key,
             base_url="https://openrouter.ai/api/v1",
             temperature=0,
-            max_tokens=16384,
             default_headers={
                 "HTTP-Referer": "https://redamon.dev",
                 "X-Title": "RedAmon Agent",
@@ -152,7 +150,6 @@ def setup_llm(
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             temperature=0,
-            max_tokens=16384,
         )
 
     elif provider == "anthropic":
@@ -176,7 +173,6 @@ def setup_llm(
             model=api_model,
             api_key=openai_api_key,
             temperature=0,
-            max_tokens=16384,
         )
 
     logger.info(f"LLM provider: {provider}, model: {api_model}")
