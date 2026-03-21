@@ -232,11 +232,15 @@ RedAmon integrates, bundles, or invokes the following third-party open-source to
 
 ### AI Regulation and EU AI Act
 
-This project is a **Scientific Research Project** intended to explore AI-driven security automation. Under the **EU AI Act (Regulation 2024/1689)**, AI systems developed and put into service for the sole purpose of scientific research and development are generally exempt from the heaviest regulatory requirements.
+This project is a **non-commercial, open-source research project** intended to explore AI-driven security automation. Under the **EU AI Act (Regulation 2024/1689)**:
 
+- **Open-Source Exemption (Article 2(12))**: This software is released under a free and open-source license (MIT) with no commercial purpose or monetization. Under Article 2(12) of the EU AI Act, AI components made available under free and open-source licenses are exempt from provider obligations, except for prohibited practices (Article 5) and transparency obligations (Article 50). This exemption does not apply if the software is monetized or deployed in a high-risk context as defined in Annex III
+- **Scientific Research Exemption (Article 2(6))**: Additionally, AI systems developed and put into service for the sole purpose of scientific research and development are generally exempt from the heaviest regulatory requirements
+- **Transparency (Article 50)**: This tool integrates third-party Large Language Models (LLMs) that autonomously generate security analysis, tool selection decisions, and attack strategies. All AI-generated outputs should be treated as machine-generated content. The AI agent's decisions are not human decisions — users must exercise independent judgment before acting on any AI-generated recommendation
 - **Non-Commercial/Research Use**: This tool is not intended for commercial deployment or "High-Risk" use cases as defined by the EU AI Act
 - **No Built-in Governance Framework**: This project does not include a built-in governance or compliance framework. Users are strongly encouraged to run this tool in **isolated, self-hosted environments** to ensure data sovereignty and compliance with local laws (e.g., GDPR, national cybersecurity regulations)
-- **User-Managed Compliance**: If deploying in any capacity beyond personal research, the user is solely responsible for implementing appropriate governance, logging, and oversight mechanisms
+- **User-Managed Compliance**: If deploying in any capacity beyond personal research, the user is solely responsible for implementing appropriate governance, logging, and oversight mechanisms. Deployers who use this tool in a high-risk context (Annex III) assume full provider/deployer obligations under the EU AI Act
+- **Liability Shift**: The authors of this open-source project bear no provider obligations under the EU AI Act. Any entity deploying this software commercially or in a regulated context assumes all applicable legal obligations as the provider or deployer under the Act
 
 ### Dual-Use Technology Notice
 

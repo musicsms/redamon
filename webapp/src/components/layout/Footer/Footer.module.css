@@ -11,9 +11,30 @@
   justify-content: space-between;
 }
 
+.left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .copyright {
   font-size: var(--text-xs);
   color: var(--text-tertiary);
+}
+
+.legalLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-decoration: none;
+  transition: var(--transition-all);
+}
+
+.legalLink:hover {
+  color: var(--text-secondary);
+  text-decoration: underline;
 }
 
 .version {

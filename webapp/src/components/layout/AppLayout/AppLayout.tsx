@@ -2,6 +2,7 @@
 
 import { GlobalHeader } from '../GlobalHeader'
 import { Footer } from '../Footer'
+import { DisclaimerGate } from '../DisclaimerGate'
 import styles from './AppLayout.module.css'
 
 interface AppLayoutProps {
@@ -12,7 +13,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className={styles.layout}>
       <GlobalHeader />
-      <main className={styles.main}>{children}</main>
+      <main className={styles.main}>
+        <DisclaimerGate>{children}</DisclaimerGate>
+      </main>
       <Footer />
     </div>
   )
