@@ -9,7 +9,7 @@
 'use client'
 
 import React, { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react'
-import { Send, Bot, User, Loader2, AlertCircle, Sparkles, Plus, Shield, ShieldAlert, Target, Zap, HelpCircle, WifiOff, Wifi, Square, Play, Download, Wrench, History, ChevronDown, EyeOff, Eye, Copy, Check, Swords, Lightbulb, Settings, X, Radiation } from 'lucide-react'
+import { Send, Bot, User, Loader2, AlertCircle, AlertTriangle, Sparkles, Plus, Shield, ShieldAlert, Target, Zap, HelpCircle, WifiOff, Wifi, Square, Play, Download, Wrench, History, ChevronDown, EyeOff, Eye, Copy, Check, Swords, Lightbulb, Settings, X, Radiation } from 'lucide-react'
 import { StealthIcon } from '@/components/icons/StealthIcon'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -24,6 +24,7 @@ import {
   type ServerMessage,
   type ApprovalRequestPayload,
   type QuestionRequestPayload,
+  type ToolConfirmationRequestPayload,
   type TodoItem
 } from '@/lib/websocket-types'
 import { AgentTimeline } from './AgentTimeline'
@@ -115,6 +116,7 @@ interface AIAssistantDrawerProps {
   isOtherChainsHidden?: boolean
   onToggleOtherChains?: () => void
   hasOtherChains?: boolean
+  requireToolConfirmation?: boolean
 }
 
 const PHASE_CONFIG = {
@@ -701,6 +703,7 @@ export function AIAssistantDrawer({
   isOtherChainsHidden = false,
   onToggleOtherChains,
   hasOtherChains = false,
+  requireToolConfirmation = true,
 }: AIAssistantDrawerProps) {
   const statusWord = useRotatingWord(LOADING_STATUS_WORDS, 5000)
   const [chatItems, setChatItems] = useState<ChatItem[]>([])
@@ -714,6 +717,10 @@ export function AIAssistantDrawer({
   const [awaitingApproval, setAwaitingApproval] = useState(false)
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequestPayload | null>(null)
   const [modificationText, setModificationText] = useState('')
+
+  // Tool confirmation state
+  const [awaitingToolConfirmation, setAwaitingToolConfirmation] = useState(false)
+  const [toolConfirmationRequest, setToolConfirmationRequest] = useState<ToolConfirmationRequestPayload | null>(null)
 
   // Q&A state
   const [awaitingQuestion, setAwaitingQuestion] = useState(false)
@@ -1023,6 +1030,10 @@ export function AIAssistantDrawer({
   const awaitingApprovalRef = useRef(false)
   const isProcessingQuestion = useRef(false)
   const awaitingQuestionRef = useRef(false)
+  const isProcessingToolConfirmation = useRef(false)
+  const awaitingToolConfirmationRef = useRef(false)
+  const pendingApprovalToolId = useRef<string | null>(null)
+  const pendingApprovalWaveId = useRef<string | null>(null)
   const shouldAutoScroll = useRef(true)
   const itemIdCounter = useRef(0)
 
@@ -1083,6 +1094,8 @@ export function AIAssistantDrawer({
     setApprovalRequest(null)
     setAwaitingQuestion(false)
     setQuestionRequest(null)
+    setAwaitingToolConfirmation(false)
+    setToolConfirmationRequest(null)
     setAnswerText('')
     setSelectedOptions([])
     setTodoList([])
@@ -1092,6 +1105,10 @@ export function AIAssistantDrawer({
     isProcessingApproval.current = false
     awaitingQuestionRef.current = false
     isProcessingQuestion.current = false
+    awaitingToolConfirmationRef.current = false
+    isProcessingToolConfirmation.current = false
+    pendingApprovalToolId.current = null
+    pendingApprovalWaveId.current = null
     shouldAutoScroll.current = true // Reset to auto-scroll on new session
   }, [sessionId])
 
@@ -1113,24 +1130,50 @@ export function AIAssistantDrawer({
           updated_todo_list: todoList,
         }
         setChatItems(prev => [...prev, thinkingItem])
-        setIsLoading(true)
+        // Don't set isLoading if any user interaction is pending — keep buttons enabled
+        if (!awaitingToolConfirmationRef.current && !awaitingApprovalRef.current && !awaitingQuestionRef.current) {
+          setIsLoading(true)
+        }
         setIsStopped(false)
         break
 
       case MessageType.PLAN_START: {
-        // Create a plan wave container with nested tools
-        const waveItem: PlanWaveItem = {
-          type: 'plan_wave',
-          id: `wave-${Date.now()}-${itemIdCounter.current++}`,
-          timestamp: new Date(),
-          wave_id: message.payload.wave_id,
-          plan_rationale: message.payload.plan_rationale || '',
-          tool_count: message.payload.tool_count,
-          tools: [],
-          status: 'running',
+        const pendingWaveId = pendingApprovalWaveId.current
+        if (pendingWaveId) {
+          // Reuse existing pending_approval PlanWaveItem — update wave_id and status to running
+          pendingApprovalWaveId.current = null
+          setChatItems((prev: ChatItem[]) => {
+            const idx = prev.findIndex(item => item.type === 'plan_wave' && item.id === pendingWaveId)
+            if (idx !== -1) {
+              const wave = prev[idx] as PlanWaveItem
+              // Only update wave_id and wave status — do NOT change nested tool
+              // statuses. Each TOOL_START will update its own tool from
+              // pending_approval → running with a fresh timestamp for the timer.
+              return [
+                ...prev.slice(0, idx),
+                { ...wave, wave_id: message.payload.wave_id, status: 'running' as const, timestamp: new Date(), tool_count: message.payload.tool_count || wave.tool_count },
+                ...prev.slice(idx + 1),
+              ]
+            }
+            return prev
+          })
+        } else {
+          // Normal flow — create a plan wave container with nested tools
+          const waveItem: PlanWaveItem = {
+            type: 'plan_wave',
+            id: `wave-${Date.now()}-${itemIdCounter.current++}`,
+            timestamp: new Date(),
+            wave_id: message.payload.wave_id,
+            plan_rationale: message.payload.plan_rationale || '',
+            tool_count: message.payload.tool_count,
+            tools: [],
+            status: 'running',
+          }
+          setChatItems((prev: ChatItem[]) => [...prev, waveItem])
         }
-        setChatItems(prev => [...prev, waveItem])
-        setIsLoading(true)
+        if (!awaitingToolConfirmationRef.current && !awaitingApprovalRef.current && !awaitingQuestionRef.current) {
+          setIsLoading(true)
+        }
         break
       }
 
@@ -1138,21 +1181,44 @@ export function AIAssistantDrawer({
         const wave_id = message.payload.wave_id
         if (wave_id) {
           // Nest tool inside matching PlanWaveItem
-          const nestedTool: ToolExecutionItem = {
-            type: 'tool_execution',
-            id: `tool-${Date.now()}-${itemIdCounter.current++}`,
-            timestamp: new Date(),
-            tool_name: message.payload.tool_name,
-            tool_args: message.payload.tool_args,
-            status: 'running',
-            output_chunks: [],
-          }
-          setChatItems(prev => {
+          // Check if a pending_approval tool with this name already exists in the wave (from confirmation)
+          setChatItems((prev: ChatItem[]) => {
             const waveIndex = prev.findIndex(
               item => item.type === 'plan_wave' && (item as PlanWaveItem).wave_id === wave_id
             )
             if (waveIndex !== -1) {
               const waveItem = prev[waveIndex] as PlanWaveItem
+              // Try to match an existing pending_approval tool by name
+              const pendingIdx = waveItem.tools.findIndex(
+                t => t.tool_name === message.payload.tool_name && t.status === 'pending_approval'
+              )
+              if (pendingIdx !== -1) {
+                // Reuse — update to running with fresh timestamp
+                const updatedTools = [...waveItem.tools]
+                updatedTools[pendingIdx] = {
+                  ...updatedTools[pendingIdx],
+                  status: 'running',
+                  timestamp: new Date(),
+                  tool_args: message.payload.tool_args,
+                  step_index: message.payload.step_index,
+                }
+                return [
+                  ...prev.slice(0, waveIndex),
+                  { ...waveItem, tools: updatedTools },
+                  ...prev.slice(waveIndex + 1),
+                ]
+              }
+              // No pending match — add as new nested tool (non-dangerous tool in the wave)
+              const nestedTool: ToolExecutionItem = {
+                type: 'tool_execution',
+                id: `tool-${Date.now()}-${itemIdCounter.current++}`,
+                timestamp: new Date(),
+                tool_name: message.payload.tool_name,
+                tool_args: message.payload.tool_args,
+                status: 'running',
+                output_chunks: [],
+                step_index: message.payload.step_index,
+              }
               return [
                 ...prev.slice(0, waveIndex),
                 { ...waveItem, tools: [...waveItem.tools, nestedTool] },
@@ -1160,22 +1226,44 @@ export function AIAssistantDrawer({
               ]
             }
             // Fallback: add as standalone if wave not found
-            return [...prev, nestedTool]
+            const fallbackTool: ToolExecutionItem = {
+              type: 'tool_execution',
+              id: `tool-${Date.now()}-${itemIdCounter.current++}`,
+              timestamp: new Date(),
+              tool_name: message.payload.tool_name,
+              tool_args: message.payload.tool_args,
+              status: 'running',
+              output_chunks: [],
+            }
+            return [...prev, fallbackTool]
           })
         } else {
           // Standard single-tool execution
-          const toolItem: ToolExecutionItem = {
-            type: 'tool_execution',
-            id: `tool-${Date.now()}-${itemIdCounter.current++}`,
-            timestamp: new Date(),
-            tool_name: message.payload.tool_name,
-            tool_args: message.payload.tool_args,
-            status: 'running',
-            output_chunks: [],
+          const pendingToolId = pendingApprovalToolId.current
+          if (pendingToolId) {
+            // Reuse existing pending_approval card — update to running with fresh timestamp
+            pendingApprovalToolId.current = null
+            setChatItems((prev: ChatItem[]) => prev.map((item: ChatItem) =>
+              'type' in item && item.type === 'tool_execution' && item.id === pendingToolId
+                ? { ...item, status: 'running' as const, timestamp: new Date(), tool_args: message.payload.tool_args }
+                : item
+            ))
+          } else {
+            const toolItem: ToolExecutionItem = {
+              type: 'tool_execution',
+              id: `tool-${Date.now()}-${itemIdCounter.current++}`,
+              timestamp: new Date(),
+              tool_name: message.payload.tool_name,
+              tool_args: message.payload.tool_args,
+              status: 'running',
+              output_chunks: [],
+            }
+            setChatItems((prev: ChatItem[]) => [...prev, toolItem])
           }
-          setChatItems(prev => [...prev, toolItem])
         }
-        setIsLoading(true)
+        if (!awaitingToolConfirmationRef.current && !awaitingApprovalRef.current && !awaitingQuestionRef.current) {
+          setIsLoading(true)
+        }
         break
       }
 
@@ -1189,8 +1277,10 @@ export function AIAssistantDrawer({
             )
             if (waveIndex !== -1) {
               const waveItem = prev[waveIndex] as PlanWaveItem
+              const chunkStepIdx = message.payload.step_index
               const toolIdx = waveItem.tools.findIndex(
                 t => t.tool_name === message.payload.tool_name && t.status === 'running'
+                  && (chunkStepIdx == null || t.step_index === chunkStepIdx)
               )
               if (toolIdx !== -1) {
                 const updatedTools = [...waveItem.tools]
@@ -1240,8 +1330,10 @@ export function AIAssistantDrawer({
             )
             if (waveIndex !== -1) {
               const waveItem = prev[waveIndex] as PlanWaveItem
+              const completeStepIdx = message.payload.step_index
               const toolIdx = waveItem.tools.findIndex(
                 t => t.tool_name === message.payload.tool_name && t.status === 'running'
+                  && (completeStepIdx == null || t.step_index === completeStepIdx)
               )
               if (toolIdx !== -1) {
                 const updatedTools = [...waveItem.tools]
@@ -1414,6 +1506,83 @@ export function AIAssistantDrawer({
         setIsLoading(false)
         break
 
+      case MessageType.TOOL_CONFIRMATION_REQUEST: {
+        if (awaitingToolConfirmationRef.current || isProcessingToolConfirmation.current) {
+          break
+        }
+        awaitingToolConfirmationRef.current = true
+        setAwaitingToolConfirmation(true)
+        setToolConfirmationRequest(message.payload)
+        setIsLoading(false)
+
+        const confMode = message.payload.mode || 'single'
+        const confTools = message.payload.tools || []
+
+        if (confMode === 'plan') {
+          // Create a PlanWaveItem with pending_approval status
+          const waveId = `wave-conf-${Date.now()}-${itemIdCounter.current++}`
+          pendingApprovalWaveId.current = waveId
+          pendingApprovalToolId.current = null
+          const pendingTools: ToolExecutionItem[] = confTools.map((t: any, idx: number) => ({
+            type: 'tool_execution' as const,
+            id: `tool-conf-${Date.now()}-${idx}-${itemIdCounter.current++}`,
+            timestamp: new Date(),
+            tool_name: t.tool_name || '',
+            tool_args: t.tool_args || {},
+            status: 'pending_approval' as const,
+            output_chunks: [],
+          }))
+          const waveItem: PlanWaveItem = {
+            type: 'plan_wave',
+            id: waveId,
+            timestamp: new Date(),
+            wave_id: '',  // Will be set when PLAN_START arrives after approval
+            plan_rationale: message.payload.reasoning || '',
+            tool_count: confTools.length,
+            tools: pendingTools,
+            status: 'pending_approval',
+          }
+          setChatItems((prev: ChatItem[]) => [...prev, waveItem])
+        } else {
+          // Single tool — reuse the existing 'running' card (created by TOOL_START
+          // which arrived before TOOL_CONFIRMATION_REQUEST) and update its status
+          // to 'pending_approval'.  This prevents a duplicate card.
+          const tool = confTools[0] || {}
+          pendingApprovalWaveId.current = null
+          setChatItems((prev: ChatItem[]) => {
+            const existingIdx = prev.findIndex(
+              (item: ChatItem) => item.type === 'tool_execution'
+                && (item as ToolExecutionItem).tool_name === (tool.tool_name || '')
+                && (item as ToolExecutionItem).status === 'running'
+            )
+            if (existingIdx !== -1) {
+              // Reuse existing card — just change status
+              const existing = prev[existingIdx] as ToolExecutionItem
+              pendingApprovalToolId.current = existing.id
+              return [
+                ...prev.slice(0, existingIdx),
+                { ...existing, status: 'pending_approval' as const, tool_args: tool.tool_args || existing.tool_args },
+                ...prev.slice(existingIdx + 1),
+              ]
+            }
+            // No existing card (edge case) — create new one
+            const toolId = `tool-conf-${Date.now()}-${itemIdCounter.current++}`
+            pendingApprovalToolId.current = toolId
+            const toolItem: ToolExecutionItem = {
+              type: 'tool_execution',
+              id: toolId,
+              timestamp: new Date(),
+              tool_name: tool.tool_name || '',
+              tool_args: tool.tool_args || {},
+              status: 'pending_approval',
+              output_chunks: [],
+            }
+            return [...prev, toolItem]
+          })
+        }
+        break
+      }
+
       case MessageType.RESPONSE:
         // Add agent response message with tier-aware badge
         const tier = message.payload.response_tier || (message.payload.task_complete ? 'full_report' : 'conversational')
@@ -1483,7 +1652,7 @@ export function AIAssistantDrawer({
   }, [todoList])
 
   // Initialize WebSocket
-  const { status, isConnected, reconnectAttempt, sendQuery, sendApproval, sendAnswer, sendGuidance, sendStop, sendResume } = useAgentWebSocket({
+  const { status, isConnected, reconnectAttempt, sendQuery, sendApproval, sendToolConfirmation, sendAnswer, sendGuidance, sendStop, sendResume } = useAgentWebSocket({
     userId: userId || process.env.NEXT_PUBLIC_USER_ID || 'default_user',
     projectId: projectId || process.env.NEXT_PUBLIC_PROJECT_ID || 'default_project',
     sessionId: sessionId || process.env.NEXT_PUBLIC_SESSION_ID || 'default_session',
@@ -1507,7 +1676,7 @@ export function AIAssistantDrawer({
 
   const handleSend = useCallback(async () => {
     const question = inputValue.trim()
-    if (!question || !isConnected || awaitingApproval || awaitingQuestion) return
+    if (!question || !isConnected || awaitingApproval || awaitingQuestion || awaitingToolConfirmation) return
 
     // Auto-create conversation on first user message
     if (!conversationId && projectId && userId && sessionId) {
@@ -1601,6 +1770,62 @@ export function AIAssistantDrawer({
       }, 1000)
     }
   }, [modificationText, sendApproval, awaitingApproval])
+
+  const handleTimelineToolConfirmation = useCallback((itemId: string, decision: 'approve' | 'reject') => {
+    // Guard against double-processing
+    if (isProcessingToolConfirmation.current) return
+    isProcessingToolConfirmation.current = true
+
+    // Clear confirmation state flags
+    setAwaitingToolConfirmation(false)
+    awaitingToolConfirmationRef.current = false
+    setToolConfirmationRequest(null)
+    setIsLoading(true)
+
+    if (decision === 'reject') {
+      // Reject: update card to error status
+      setChatItems((prev: ChatItem[]) => prev.map((item: ChatItem) => {
+        if (!('type' in item)) return item
+        if (item.type === 'tool_execution' && item.id === itemId) {
+          return { ...item, status: 'error' as const, final_output: 'Rejected by user' }
+        }
+        if (item.type === 'plan_wave' && item.id === itemId) {
+          return { ...item, status: 'error' as const, interpretation: 'Rejected by user' }
+        }
+        return item
+      }))
+      pendingApprovalToolId.current = null
+      pendingApprovalWaveId.current = null
+    } else {
+      // Approve: set refs so PLAN_START / TOOL_START can find and update the existing card
+      // Use setChatItems to read current items without adding chatItems to deps
+      setChatItems((prev: ChatItem[]) => {
+        const matchingItem = prev.find((item: ChatItem) =>
+          'type' in item && item.id === itemId && (item.type === 'plan_wave' || item.type === 'tool_execution')
+        )
+        if (matchingItem && 'type' in matchingItem) {
+          if (matchingItem.type === 'plan_wave') {
+            pendingApprovalWaveId.current = itemId
+            pendingApprovalToolId.current = null
+          } else {
+            pendingApprovalToolId.current = itemId
+            pendingApprovalWaveId.current = null
+          }
+        }
+        return prev  // No mutation — just reading
+      })
+    }
+
+    try {
+      sendToolConfirmation(decision)
+    } catch (error) {
+      setIsLoading(false)
+    } finally {
+      setTimeout(() => {
+        isProcessingToolConfirmation.current = false
+      }, 1000)
+    }
+  }, [sendToolConfirmation])
 
   const handleAnswer = useCallback(() => {
     // Prevent double submission using ref (immediate check, not async state)
@@ -1939,6 +2164,8 @@ export function AIAssistantDrawer({
     setApprovalRequest(null)
     setAwaitingQuestion(false)
     setQuestionRequest(null)
+    setAwaitingToolConfirmation(false)
+    setToolConfirmationRequest(null)
     setAnswerText('')
     setSelectedOptions([])
     setTodoList([])
@@ -1948,6 +2175,8 @@ export function AIAssistantDrawer({
     isProcessingApproval.current = false
     awaitingQuestionRef.current = false
     isProcessingQuestion.current = false
+    awaitingToolConfirmationRef.current = false
+    isProcessingToolConfirmation.current = false
     shouldAutoScroll.current = true
     setConversationId(null)
     setShowHistory(false)
@@ -1963,34 +2192,101 @@ export function AIAssistantDrawer({
     let lastTodoList: TodoItem[] = []
     let lastApprovalRequest: any = null
     let lastQuestionRequest: any = null
+    let lastToolConfirmationRequest: any = null
     let lastRenderedPhase: string = ''
     let lastAttackPathType: string = ''
-    // Track whether the agent did actual WORK after the last approval/question.
+    // Track whether the agent did actual WORK after the last approval/question/tool confirmation.
     // assistant_message doesn't count (it's the phase transition description that
     // arrives alongside the approval_request). Only thinking/tool_start indicate
     // the user already responded and the agent continued.
     let hasWorkAfterApproval = false
     let hasWorkAfterQuestion = false
+    let hasWorkAfterToolConfirmation = false
 
-    // Count tool_complete per tool_name so we can pair them with tool_start.
-    // Only unpaired tool_start (no remaining tool_complete) creates a fallback card.
-    const toolCompleteCounts = new Map<string, number>()
-    for (const msg of full.messages) {
-      if (msg.type === 'tool_complete') {
-        const name = (msg.data as any).tool_name || ''
-        toolCompleteCounts.set(name, (toolCompleteCounts.get(name) || 0) + 1)
+    // --- Proper tool_start ↔ tool_complete pairing ---
+    //
+    // Step 1: Identify duplicate tool_starts AND tool_completes from stale
+    //   re-emissions on resume.  For starts: same tool_name + tool_args within
+    //   60s → duplicate.  For completes: same tool_name + raw_output[:500]
+    //   within 60s → duplicate.  Keep the first, mark the rest for exclusion.
+    const duplicateStartIds = new Set<string>()
+    const duplicateCompleteIds = new Set<string>()
+    {
+      const recentStarts = new Map<string, number>()
+      const recentCompletes = new Map<string, number>()
+      for (const msg of full.messages) {
+        const d = msg.data as any
+        const t = new Date(msg.createdAt).getTime()
+        if (msg.type === 'tool_start' && !d?.wave_id) {
+          const fp = `${d?.tool_name || ''}::${JSON.stringify(d?.tool_args || {})}`
+          const prev = recentStarts.get(fp)
+          if (prev && t - prev < 60000) {
+            duplicateStartIds.add(msg.id)
+          } else {
+            recentStarts.set(fp, t)
+          }
+        }
+        if (msg.type === 'tool_complete' && !d?.wave_id) {
+          const fp = `${d?.tool_name || ''}::${(d?.raw_output || '').slice(0, 500)}`
+          const prev = recentCompletes.get(fp)
+          if (prev && t - prev < 60000) {
+            duplicateCompleteIds.add(msg.id)
+          } else {
+            recentCompletes.set(fp, t)
+          }
+        }
       }
     }
-    // Clone so we can decrement as we consume tool_start entries
-    const remainingCompletes = new Map(toolCompleteCounts)
+
+    // Step 2: Collect deduplicated standalone starts and completes.
+    const standaloneStartsByName = new Map<string, { id: string; createdAt: string }[]>()
+    const standaloneCompletesByName = new Map<string, { id: string; createdAt: string }[]>()
+    for (const msg of full.messages) {
+      const d = msg.data as any
+      if (msg.type === 'tool_start' && !d?.wave_id && !duplicateStartIds.has(msg.id)) {
+        const name = d?.tool_name || ''
+        if (!standaloneStartsByName.has(name)) standaloneStartsByName.set(name, [])
+        standaloneStartsByName.get(name)!.push({ id: msg.id, createdAt: msg.createdAt })
+      }
+      if (msg.type === 'tool_complete' && !d?.wave_id && !duplicateCompleteIds.has(msg.id)) {
+        const name = d?.tool_name || ''
+        if (!standaloneCompletesByName.has(name)) standaloneCompletesByName.set(name, [])
+        standaloneCompletesByName.get(name)!.push({ id: msg.id, createdAt: msg.createdAt })
+      }
+    }
+
+    // Step 3: Pair by position — Nth start ↔ Nth complete for each tool_name.
+    const consumedStartIds = new Set<string>()        // tool_start IDs that have a matching complete
+    const completeToStartTime = new Map<string, Date>() // complete.id → start.createdAt
+    for (const [name, completes] of standaloneCompletesByName) {
+      const starts = standaloneStartsByName.get(name) || []
+      for (let i = 0; i < completes.length && i < starts.length; i++) {
+        consumedStartIds.add(starts[i].id)
+        completeToStartTime.set(completes[i].id, new Date(starts[i].createdAt))
+      }
+    }
+
+    // Dedup sets — stale re-emissions on resume can persist duplicate
+    // thinking messages at later sequenceNums.  Tool start/complete dedup
+    // is handled by the pre-pass above (duplicateStartIds/duplicateCompleteIds).
+    const seenThinkingKeys = new Set<string>()
+    const seenRunningToolKeys = new Set<string>()
 
     const restored: ChatItem[] = full.messages.map((msg: { id: string; type: string; data: unknown; createdAt: string }) => {
       const data = msg.data as any
 
-      // Track agent work after approval/question requests
+      // Track agent work after approval/question/tool confirmation requests
       if (msg.type === 'thinking' || msg.type === 'tool_start' || msg.type === 'tool_complete') {
         if (lastApprovalRequest) hasWorkAfterApproval = true
         if (lastQuestionRequest) hasWorkAfterQuestion = true
+        if (lastToolConfirmationRequest) hasWorkAfterToolConfirmation = true
+      }
+
+      // Dedup thinking: skip if same thought text already seen
+      if (msg.type === 'thinking') {
+        const key = (data.thought || '').slice(0, 200)
+        if (seenThinkingKeys.has(key)) return null
+        seenThinkingKeys.add(key)
       }
 
       if (msg.type === 'user_message' || msg.type === 'assistant_message') {
@@ -2020,13 +2316,14 @@ export function AIAssistantDrawer({
       } else if (msg.type === 'tool_start') {
         // Skip wave-owned tool_start — they're nested via post-pass
         if (data.wave_id) return null
-        // If a matching tool_complete exists, skip — full data comes from tool_complete
-        const toolName = data.tool_name || ''
-        const remaining = remainingCompletes.get(toolName) || 0
-        if (remaining > 0) {
-          remainingCompletes.set(toolName, remaining - 1)
-          return null
-        }
+        // Skip duplicate starts (stale re-emissions identified in pre-pass)
+        if (duplicateStartIds.has(msg.id)) return null
+        // If this start is paired with a tool_complete, skip — the complete creates the card
+        if (consumedStartIds.has(msg.id)) return null
+        // Dedup remaining unpaired tool_starts by tool_name+args
+        const runKey = `${data.tool_name || ''}::${JSON.stringify(data.tool_args || {})}`
+        if (seenRunningToolKeys.has(runKey)) return null
+        seenRunningToolKeys.add(runKey)
         // No matching tool_complete — tool was still running or never completed.
         // Show it as a running/incomplete tool card so it's not invisible.
         return {
@@ -2041,15 +2338,12 @@ export function AIAssistantDrawer({
       } else if (msg.type === 'tool_complete') {
         // Skip wave-owned tool_complete — they're nested via post-pass
         if (data.wave_id) return null
+        // Skip duplicate completes (stale re-emissions identified in pre-pass)
+        if (duplicateCompleteIds.has(msg.id)) return null
         // Reconstruct full ToolExecutionItem with raw output and tool_args
         const rawOutput = data.raw_output || ''
-        // Find matching tool_start for duration calculation
-        const matchingStart = full.messages.find(
-          (m: any) => m.type === 'tool_start' && (m.data as any)?.tool_name === data.tool_name
-            && !((m.data as any)?.wave_id)
-            && new Date(m.createdAt).getTime() < new Date(msg.createdAt).getTime()
-        )
-        const startTime = matchingStart ? new Date(matchingStart.createdAt) : undefined
+        // Use positionally-paired tool_start for timestamp and duration
+        const startTime = completeToStartTime.get(msg.id)
         const completeTime = new Date(msg.createdAt)
         const duration = startTime ? completeTime.getTime() - startTime.getTime() : undefined
         return {
@@ -2181,18 +2475,50 @@ export function AIAssistantDrawer({
           content: `Answer: ${data.answer || ''}`,
           timestamp: new Date(msg.createdAt),
         } as Message
-      } else if (msg.type === 'plan_start') {
-        // Create empty PlanWaveItem shell — tools will be populated by tool_complete with wave_id
+      } else if (msg.type === 'tool_confirmation_request') {
+        lastToolConfirmationRequest = data
+        hasWorkAfterToolConfirmation = false
+        const confMode = data.mode || 'single'
+        const confTools = data.tools || []
+        if (confMode === 'plan') {
+          return {
+            type: 'plan_wave',
+            id: msg.id,
+            timestamp: new Date(msg.createdAt),
+            wave_id: '',
+            plan_rationale: data.reasoning || '',
+            tool_count: confTools.length,
+            tools: confTools.map((t: any, idx: number) => ({
+              type: 'tool_execution' as const,
+              id: `${msg.id}-tool-${idx}`,
+              timestamp: new Date(msg.createdAt),
+              tool_name: t.tool_name || '',
+              tool_args: t.tool_args || {},
+              status: 'pending_approval' as const,
+              output_chunks: [],
+            })),
+            status: 'pending_approval',
+          } as PlanWaveItem
+        }
+        const tool = confTools[0] || {}
         return {
-          type: 'plan_wave',
+          type: 'tool_execution',
           id: msg.id,
           timestamp: new Date(msg.createdAt),
-          wave_id: data.wave_id || '',
-          plan_rationale: data.plan_rationale || '',
-          tool_count: data.tool_count || 0,
-          tools: [],
-          status: 'running',
-        } as PlanWaveItem
+          tool_name: tool.tool_name || '',
+          tool_args: tool.tool_args || {},
+          status: 'pending_approval',
+          output_chunks: [],
+        } as ToolExecutionItem
+      } else if (msg.type === 'tool_confirmation_response') {
+        lastToolConfirmationRequest = null
+        hasWorkAfterToolConfirmation = true
+        // Mark: post-process will update the preceding tool_confirmation item's status
+        return { _toolConfResponse: true, decision: data.decision } as any
+      } else if (msg.type === 'plan_start') {
+        // Check if there's a pending_approval PlanWaveItem from tool_confirmation_request to reuse
+        // If so, return a marker that the post-pass will use to update the existing wave
+        return { _planStartLink: true, wave_id: data.wave_id || '', msg_id: msg.id, timestamp: new Date(msg.createdAt), plan_rationale: data.plan_rationale || '', tool_count: data.tool_count || 0 } as any
       } else if (msg.type === 'deep_think') {
         return {
           type: 'deep_think',
@@ -2211,14 +2537,101 @@ export function AIAssistantDrawer({
       return null
     }).filter((item): item is ChatItem => item !== null)
 
+    // Post-pass: apply tool_confirmation_response decisions to preceding pending_approval items
+    // Markers have { _toolConfResponse: true, decision: string } — find & update, then remove marker
+    {
+      const markers: number[] = []
+      for (let i = 0; i < restored.length; i++) {
+        const item = restored[i] as any
+        if (item._toolConfResponse) {
+          markers.push(i)
+          for (let j = i - 1; j >= 0; j--) {
+            const prev = restored[j] as any
+            if (prev.status === 'pending_approval' && (prev.type === 'tool_execution' || prev.type === 'plan_wave')) {
+              if (item.decision === 'approve') {
+                if (prev.type === 'plan_wave') {
+                  // Approved wave — clear pending tools, they'll be rebuilt from tool_complete
+                  restored[j] = { ...prev, status: 'running', tools: [] }
+                } else {
+                  // Approved single tool — REMOVE the card entirely.
+                  // The tool_complete message will create the definitive card
+                  // with full output data.  Keeping this as 'running' would
+                  // create a duplicate alongside the tool_complete card.
+                  restored.splice(j, 1)
+                  // Adjust marker indices since we removed an item before them
+                  for (let m = 0; m < markers.length; m++) {
+                    if (markers[m] > j) markers[m]--
+                  }
+                  i-- // current marker index shifted too
+                }
+              } else {
+                restored[j] = { ...prev, status: 'error', final_output: 'Rejected by user' }
+              }
+              break
+            }
+          }
+        }
+      }
+      for (let k = markers.length - 1; k >= 0; k--) {
+        restored.splice(markers[k], 1)
+      }
+    }
+
+    // Post-pass: link plan_start markers to existing PlanWaveItems (from tool_confirmation_request) or create new ones
+    {
+      const planStartMarkers: number[] = []
+      for (let i = 0; i < restored.length; i++) {
+        const item = restored[i] as any
+        if (item._planStartLink) {
+          planStartMarkers.push(i)
+          // Find a preceding PlanWaveItem with empty wave_id (created from tool_confirmation_request)
+          let linked = false
+          for (let j = i - 1; j >= 0; j--) {
+            const prev = restored[j] as any
+            if (prev.type === 'plan_wave' && prev.wave_id === '') {
+              restored[j] = {
+                ...prev,
+                wave_id: item.wave_id,
+                plan_rationale: item.plan_rationale || prev.plan_rationale,
+                tool_count: item.tool_count || prev.tool_count,
+                status: prev.status === 'pending_approval' ? 'pending_approval' : 'running',
+              }
+              linked = true
+              break
+            }
+          }
+          if (!linked) {
+            // No pending wave found — create a new PlanWaveItem in place
+            restored[i] = {
+              type: 'plan_wave',
+              id: item.msg_id,
+              timestamp: item.timestamp,
+              wave_id: item.wave_id,
+              plan_rationale: item.plan_rationale,
+              tool_count: item.tool_count,
+              tools: [],
+              status: 'running',
+            } as PlanWaveItem
+            continue
+          }
+        }
+      }
+      for (let k = planStartMarkers.length - 1; k >= 0; k--) {
+        if ((restored[planStartMarkers[k]] as any)._planStartLink) {
+          restored.splice(planStartMarkers[k], 1)
+        }
+      }
+    }
+
     // Post-pass: nest tool_complete items with wave_id into their PlanWaveItem containers
     // and apply plan_complete statuses (immutable updates — no direct mutation)
-    // Build a lookup of tool_start timestamps by wave_id:tool_name for duration calc
+    // Build a lookup of tool_start timestamps by wave_id:tool_name:step_index for duration calc
     const waveToolStartTimes = new Map<string, Date>()
     for (const msg of full.messages) {
       if (msg.type === 'tool_start' && (msg.data as any)?.wave_id) {
         const d = msg.data as any
-        waveToolStartTimes.set(`${d.wave_id}:${d.tool_name}`, new Date(msg.createdAt))
+        const si = d.step_index ?? ''
+        waveToolStartTimes.set(`${d.wave_id}:${d.tool_name}:${si}`, new Date(msg.createdAt))
       }
     }
 
@@ -2233,24 +2646,28 @@ export function AIAssistantDrawer({
       if (waveIdx !== -1) {
         const wave = restored[waveIdx] as PlanWaveItem
         const rawOutput = data.raw_output || ''
-        const startTime = waveToolStartTimes.get(`${data.wave_id}:${data.tool_name}`)
+        const si = data.step_index ?? ''
+        const startTime = waveToolStartTimes.get(`${data.wave_id}:${data.tool_name}:${si}`)
         const completeTime = new Date(msg.createdAt)
         const duration = startTime ? completeTime.getTime() - startTime.getTime() : undefined
+        const newTools = [...wave.tools, {
+          type: 'tool_execution' as const,
+          id: msg.id,
+          timestamp: startTime || completeTime,
+          tool_name: data.tool_name || '',
+          tool_args: data.tool_args || {},
+          status: (data.success ? 'success' : 'error') as 'success' | 'error',
+          output_chunks: rawOutput ? [rawOutput] : [],
+          final_output: data.output_summary,
+          actionable_findings: data.actionable_findings || [],
+          recommended_next_steps: data.recommended_next_steps || [],
+          duration,
+          step_index: data.step_index,
+        }]
         restored[waveIdx] = {
           ...wave,
-          tools: [...wave.tools, {
-            type: 'tool_execution' as const,
-            id: msg.id,
-            timestamp: startTime || completeTime,
-            tool_name: data.tool_name || '',
-            tool_args: data.tool_args || {},
-            status: (data.success ? 'success' : 'error') as 'success' | 'error',
-            output_chunks: rawOutput ? [rawOutput] : [],
-            final_output: data.output_summary,
-            actionable_findings: data.actionable_findings || [],
-            recommended_next_steps: data.recommended_next_steps || [],
-            duration,
-          }],
+          tools: newTools,
+          tool_count: Math.max(wave.tool_count, newTools.length),
         }
       }
     }
@@ -2292,7 +2709,15 @@ export function AIAssistantDrawer({
       }
     }
 
-    // Wave tool_complete items were already skipped in the map pass, so restored is final
+    // Sort by timestamp so items appear in chronological order regardless
+    // of DB insertion order (sequenceNum).  Stable sort preserves the
+    // original order for items that share the same timestamp.
+    restored.sort((a: any, b: any) => {
+      const ta = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime()
+      const tb = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime()
+      return ta - tb
+    })
+
     const finalRestored = restored
 
     // Apply state
@@ -2325,6 +2750,22 @@ export function AIAssistantDrawer({
     } else {
       setAwaitingQuestion(false)
       setQuestionRequest(null)
+    }
+    if (lastToolConfirmationRequest && !hasWorkAfterToolConfirmation) {
+      setAwaitingToolConfirmation(true)
+      setToolConfirmationRequest(lastToolConfirmationRequest)
+      awaitingToolConfirmationRef.current = true
+      // Find the pending_approval inline card ID so approve/reject can update it
+      const pendingTool = restored.findLast?.((item: any) => item.type === 'tool_execution' && item.status === 'pending_approval')
+      const pendingWave = restored.findLast?.((item: any) => item.type === 'plan_wave' && item.status === 'pending_approval')
+      if (pendingWave) {
+        pendingApprovalWaveId.current = pendingWave.id
+      } else if (pendingTool) {
+        pendingApprovalToolId.current = pendingTool.id
+      }
+    } else {
+      setAwaitingToolConfirmation(false)
+      setToolConfirmationRequest(null)
     }
 
     // Switch WebSocket session — flag to prevent the sessionId useEffect from clearing state
@@ -2564,6 +3005,14 @@ export function AIAssistantDrawer({
               <span className={styles.sessionCode} title={sessionId}>
                 Session: {sessionId.slice(-8)}
               </span>
+              {!requireToolConfirmation && (
+                <Tooltip content="Tool confirmation is disabled. Dangerous tools will execute without manual approval.">
+                  <div className={styles.dangerBadge}>
+                    <AlertTriangle size={12} />
+                    <span>Auto-exec</span>
+                  </div>
+                </Tooltip>
+              )}
             </div>
           </div>
         </div>
@@ -3081,6 +3530,8 @@ export function AIAssistantDrawer({
                 isStreaming={isLoading && index === groupedChatItems.length - 1}
                 missingApiKeys={missingApiKeys}
                 onAddApiKey={openApiKeyModal}
+                onToolConfirmation={handleTimelineToolConfirmation}
+                toolConfirmationDisabled={isLoading}
               />
             )
           }
@@ -3313,7 +3764,7 @@ export function AIAssistantDrawer({
                 : 'Ask a question...'
             }
             rows={2}
-            disabled={awaitingApproval || awaitingQuestion || !isConnected || isStopped}
+            disabled={awaitingApproval || awaitingQuestion || awaitingToolConfirmation || !isConnected || isStopped}
           />
           <div className={styles.inputActions}>
             {(isLoading || isStopped || isStopping) && (
@@ -3330,7 +3781,7 @@ export function AIAssistantDrawer({
             <button
               className={styles.sendButton}
               onClick={handleSend}
-              disabled={!inputValue.trim() || awaitingApproval || awaitingQuestion || !isConnected || isStopped}
+              disabled={!inputValue.trim() || awaitingApproval || awaitingQuestion || awaitingToolConfirmation || !isConnected || isStopped}
               aria-label="Send message"
             >
               <Send size={13} />

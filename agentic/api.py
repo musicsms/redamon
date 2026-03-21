@@ -116,14 +116,21 @@ async def check_target_guardrail(body: GuardrailRequest):
     """
     Check if a target domain or IP list is safe to scan.
 
-    Uses the LLM to evaluate whether the target is a well-known public service,
-    government website, or major company that the user is unlikely authorized to test.
-    For IPs, performs reverse DNS to resolve hostnames before checking.
-
-    Fails open: returns allowed=True if LLM is unavailable or any error occurs.
+    Two layers:
+    1. Hard guardrail (deterministic): always blocks government/public domains.
+       Cannot be disabled. Runs first.
+    2. Soft guardrail (LLM-based): blocks well-known private companies.
+       Fails open if LLM is unavailable.
     """
+    from hard_guardrail import is_hard_blocked
     from guardrail import check_target_allowed
     from project_settings import DEFAULT_AGENT_SETTINGS
+
+    # Hard guardrail: deterministic, non-disableable
+    if body.target_domain:
+        blocked, reason = is_hard_blocked(body.target_domain)
+        if blocked:
+            return {"allowed": False, "reason": reason, "hard_blocked": True}
 
     if not orchestrator or not orchestrator._initialized:
         return {"allowed": True, "reason": "Agent not initialized, guardrail skipped"}

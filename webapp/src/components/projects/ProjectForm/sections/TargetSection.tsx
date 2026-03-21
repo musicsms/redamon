@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { ChevronDown, Target } from 'lucide-react'
+import { ChevronDown, Target, ShieldAlert } from 'lucide-react'
 import { Toggle } from '@/components/ui'
 import type { Project } from '@prisma/client'
+import { isHardBlockedDomain } from '@/lib/hard-guardrail'
 import styles from '../ProjectForm.module.css'
 
 type FormData = Omit<Project, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'user'>
@@ -59,6 +60,12 @@ export function TargetSection({ data, updateField, mode = 'create' }: TargetSect
 
   // Display value for IP textarea
   const displayIps = useMemo(() => (data.targetIps || []).join('\n'), [data.targetIps])
+
+  // Hard guardrail: deterministic check for government/public domains (non-disableable)
+  const hardBlockResult = useMemo(
+    () => (!ipMode && data.targetDomain ? isHardBlockedDomain(data.targetDomain) : { blocked: false, reason: '' }),
+    [ipMode, data.targetDomain]
+  )
 
   const handlePrefixesChange = (value: string) => {
     updateField('subdomainList', toStoredPrefixes(value, includesRootDomain))
@@ -150,6 +157,18 @@ export function TargetSection({ data, updateField, mode = 'create' }: TargetSect
               </div>
             )}
           </div>
+
+          {/* Hard guardrail warning for government/public domains */}
+          {hardBlockResult.blocked && (
+            <div className={styles.shodanWarning} style={{ borderColor: 'rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.08)' }}>
+              <ShieldAlert size={14} style={{ color: '#ef4444' }} />
+              <span>
+                <strong>Target permanently blocked:</strong> Government, military, educational, and international
+                organization websites (.gov, .mil, .edu, .int, etc.) are always blocked and cannot be used as targets,
+                regardless of guardrail settings. This restriction cannot be disabled.
+              </span>
+            </div>
+          )}
 
           {/* IP Mode: Target IPs textarea */}
           {ipMode && (
@@ -293,9 +312,11 @@ export function TargetSection({ data, updateField, mode = 'create' }: TargetSect
               <div style={{ flex: 1, minWidth: 0 }}>
                 <span className={styles.toggleLabel}>Enable Target Guardrail</span>
                 <p className={styles.toggleDescription}>
-                  Block well-known public targets (government sites, major tech companies,
+                  Block well-known public targets (major tech companies,
                   cloud providers, financial institutions, etc.) when saving the project.
                   Prevents accidental scanning of unauthorized domains.
+                  Government, military, educational, and international organization domains
+                  (.gov, .mil, .edu, .int) are always blocked regardless of this setting.
                 </p>
               </div>
               <Toggle

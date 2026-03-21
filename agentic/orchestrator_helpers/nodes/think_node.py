@@ -14,6 +14,7 @@ from state import (
     PhaseHistoryEntry,
     PhaseTransitionRequest,
     TargetInfo,
+    ToolConfirmationRequest,
     UserQuestionRequest,
     format_chain_context,
     format_todo_list,
@@ -25,7 +26,7 @@ import orchestrator_helpers.chain_graph_writer as chain_graph
 from orchestrator_helpers.json_utils import json_dumps_safe, normalize_content
 from orchestrator_helpers.parsing import try_parse_llm_decision
 from orchestrator_helpers.config import get_identifiers, is_session_config_complete
-from project_settings import get_setting, get_allowed_tools_for_phase
+from project_settings import get_setting, get_allowed_tools_for_phase, DANGEROUS_TOOLS
 from prompts import (
     REACT_SYSTEM_PROMPT,
     PENDING_OUTPUT_ANALYSIS_SECTION,
@@ -259,7 +260,16 @@ async def think_node(state: AgentState, config, *, llm, guidance_queues, neo4j_c
         logger.info(f"[{user_id}/{project_id}/{session_id}] STEALTH MODE active — injected stealth rules into prompt")
 
     # Scope guardrail: remind agent to stay within authorized targets
-    if get_setting('AGENT_GUARDRAIL_ENABLED', True):
+    # Always inject for hard-blocked domains (government/public); also inject when soft guardrail is enabled
+    _inject_scope_guardrail = get_setting('AGENT_GUARDRAIL_ENABLED', True)
+    if not _inject_scope_guardrail:
+        from hard_guardrail import is_hard_blocked
+        _target_domain = get_setting('TARGET_DOMAIN', '')
+        _ip_mode = get_setting('IP_MODE', False)
+        if not _ip_mode and _target_domain:
+            _inject_scope_guardrail, _ = is_hard_blocked(_target_domain)
+
+    if _inject_scope_guardrail:
         system_prompt += (
             "\n\n## SCOPE GUARDRAIL\n\n"
             "You must ONLY operate against the project's configured target domain/IPs. "
@@ -522,6 +532,8 @@ async def think_node(state: AgentState, config, *, llm, guidance_queues, neo4j_c
         "todo_list": todo_list,
         "_decision": decision.model_dump(),
         "_just_transitioned_to": None,  # Clear the marker
+        "_reject_tool": False,  # Clear tool rejection marker from previous iteration
+        "_tool_confirmation_mode": None,  # Clear mode from previous confirmation
         "_completed_step": None,  # Will be set if we process pending output
     }
 
@@ -712,7 +724,7 @@ async def think_node(state: AgentState, config, *, llm, guidance_queues, neo4j_c
             updates["execution_trace"] = execution_trace
             updates["target_info"] = merged_target.model_dump()
             updates["_completed_step"] = pending_step
-            updates["messages"] = [AIMessage(content=f"**Step {pending_step.get('iteration')}** [{phase}]\n\n{analysis.interpretation}")]
+            updates["messages"] = [AIMessage(content=f"**Step {step_iteration}** [{phase}]\n\n{analysis.interpretation}")]
 
         else:
             # LLM didn't return analysis — use raw output as fallback
@@ -1080,5 +1092,51 @@ async def think_node(state: AgentState, config, *, llm, guidance_queues, neo4j_c
                     phase=phase,
                 ).model_dump()
                 updates["awaiting_user_question"] = True
+
+    # Tool confirmation gate — only when setting enabled and no other gate active
+    if (get_setting('REQUIRE_TOOL_CONFIRMATION', True)
+            and not updates.get("awaiting_user_approval")
+            and not updates.get("awaiting_user_question")):
+
+        action = decision.action
+        if action == "use_tool" and decision.tool_name in DANGEROUS_TOOLS:
+            updates["awaiting_tool_confirmation"] = True
+            updates["tool_confirmation_pending"] = ToolConfirmationRequest(
+                mode="single",
+                tools=[{
+                    "tool_name": decision.tool_name,
+                    "tool_args": decision.tool_args or {},
+                    "rationale": decision.reasoning or "",
+                }],
+                reasoning=decision.reasoning or "",
+                phase=phase,
+                iteration=iteration,
+            ).model_dump()
+
+        elif action == "plan_tools" and decision.tool_plan:
+            dangerous = [
+                {
+                    "tool_name": s.tool_name,
+                    "tool_args": s.tool_args,
+                    "rationale": s.rationale,
+                }
+                for s in decision.tool_plan.steps
+                if s.tool_name in DANGEROUS_TOOLS
+            ]
+            if dangerous:
+                updates["awaiting_tool_confirmation"] = True
+                updates["tool_confirmation_pending"] = ToolConfirmationRequest(
+                    mode="plan",
+                    tools=dangerous,
+                    reasoning=decision.tool_plan.plan_rationale,
+                    phase=phase,
+                    iteration=iteration,
+                ).model_dump()
+
+    # If tool confirmation is pending, suppress the step analysis message
+    # (it would show as a premature "Step X" report in chat; analysis is already
+    # communicated via tool_complete streaming event)
+    if updates.get("awaiting_tool_confirmation"):
+        updates.pop("messages", None)
 
     return updates

@@ -42,6 +42,7 @@ class MessageType(str, Enum):
     QUERY = "query"
     APPROVAL = "approval"
     ANSWER = "answer"
+    TOOL_CONFIRMATION = "tool_confirmation"
     PING = "ping"
     GUIDANCE = "guidance"
     STOP = "stop"
@@ -70,6 +71,7 @@ class MessageType(str, Enum):
     PLAN_COMPLETE = "plan_complete"
     PLAN_ANALYSIS = "plan_analysis"
     DEEP_THINK = "deep_think"
+    TOOL_CONFIRMATION_REQUEST = "tool_confirmation_request"
 
 
 # =============================================================================
@@ -97,6 +99,12 @@ class ApprovalMessage(BaseModel):
 class AnswerMessage(BaseModel):
     """Answer agent's question"""
     answer: str
+
+
+class ToolConfirmationMessage(BaseModel):
+    """Respond to tool confirmation request"""
+    decision: str  # 'approve' | 'modify' | 'reject'
+    modifications: Optional[dict] = None  # {tool_name: {arg: value}} for modify
 
 
 class GuidanceMessage(BaseModel):
@@ -311,6 +319,7 @@ class StreamingCallback:
         # unlike state-dict markers which are lost on astream resume
         self._emitted_approval_key: str | None = None
         self._emitted_question_key: str | None = None
+        self._emitted_tool_confirmation_key: str | None = None
         self._emitted_thinking_ids: set = set()
         self._emitted_tool_start_ids: set = set()
         self._emitted_tool_complete_ids: set = set()
@@ -380,7 +389,7 @@ class StreamingCallback:
         })
         # Don't persist chunks — they are partial data; the full thinking is persisted via on_thinking
 
-    async def on_tool_start(self, tool_name: str, tool_args: dict, wave_id: str = None):
+    async def on_tool_start(self, tool_name: str, tool_args: dict, wave_id: str = None, step_index: int = None):
         """Called when tool execution starts"""
         payload = {
             "tool_name": tool_name,
@@ -388,13 +397,16 @@ class StreamingCallback:
         }
         if wave_id:
             payload["wave_id"] = wave_id
+        if step_index is not None:
+            payload["step_index"] = step_index
         await self.connection.send_message(MessageType.TOOL_START, payload)
         self._persist("tool_start", payload)
         # Initialize accumulator for this tool's output chunks
-        ctx_key = f"{wave_id}:{tool_name}" if wave_id else tool_name
+        # Use step_index in key to disambiguate same-name tools in a wave
+        ctx_key = f"{wave_id}:{step_index}:{tool_name}" if wave_id and step_index is not None else (f"{wave_id}:{tool_name}" if wave_id else tool_name)
         self._tool_context[ctx_key] = {"args": tool_args, "chunks": []}
 
-    async def on_tool_output_chunk(self, tool_name: str, chunk: str, is_final: bool = False, wave_id: str = None):
+    async def on_tool_output_chunk(self, tool_name: str, chunk: str, is_final: bool = False, wave_id: str = None, step_index: int = None):
         """Called when tool outputs data chunk"""
         payload = {
             "tool_name": tool_name,
@@ -403,9 +415,11 @@ class StreamingCallback:
         }
         if wave_id:
             payload["wave_id"] = wave_id
+        if step_index is not None:
+            payload["step_index"] = step_index
         await self.connection.send_message(MessageType.TOOL_OUTPUT_CHUNK, payload)
         # Accumulate chunks — they'll be joined and included in tool_complete
-        ctx_key = f"{wave_id}:{tool_name}" if wave_id else tool_name
+        ctx_key = f"{wave_id}:{step_index}:{tool_name}" if wave_id and step_index is not None else (f"{wave_id}:{tool_name}" if wave_id else tool_name)
         if ctx_key in self._tool_context:
             self._tool_context[ctx_key]["chunks"].append(chunk)
 
@@ -417,6 +431,7 @@ class StreamingCallback:
         actionable_findings: list = None,
         recommended_next_steps: list = None,
         wave_id: str = None,
+        step_index: int = None,
     ):
         """Called when tool execution completes"""
         payload = {
@@ -428,9 +443,11 @@ class StreamingCallback:
         }
         if wave_id:
             payload["wave_id"] = wave_id
+        if step_index is not None:
+            payload["step_index"] = step_index
         await self.connection.send_message(MessageType.TOOL_COMPLETE, payload)
         # Include accumulated raw output and tool_args in persisted payload
-        ctx_key = f"{wave_id}:{tool_name}" if wave_id else tool_name
+        ctx_key = f"{wave_id}:{step_index}:{tool_name}" if wave_id and step_index is not None else (f"{wave_id}:{tool_name}" if wave_id else tool_name)
         ctx = self._tool_context.pop(ctx_key, {})
         persist_payload = {
             **payload,
@@ -520,6 +537,13 @@ class StreamingCallback:
         await self.connection.send_message(MessageType.QUESTION_REQUEST, question_request)
         self._persist("question_request", question_request)
         logger.info(f"Question request sent to session {self.connection.session_id}")
+
+    async def on_tool_confirmation_request(self, confirmation_request: dict):
+        """Called when agent requests tool confirmation before executing dangerous tools"""
+        # Deduplication is handled by emit_streaming_events via callback._emitted_tool_confirmation_key
+        await self.connection.send_message(MessageType.TOOL_CONFIRMATION_REQUEST, confirmation_request)
+        self._persist("tool_confirmation_request", confirmation_request)
+        logger.info(f"Tool confirmation request sent to session {self.connection.session_id}")
 
     async def on_response(self, answer: str, iteration_count: int, phase: str, task_complete: bool, response_tier: str = "full_report"):
         """Called when agent provides final response"""
@@ -815,6 +839,74 @@ class WebSocketHandler:
             self.ws_manager.clear_task(connection.get_key())
             asyncio.create_task(update_conversation(connection.session_id, {"agentRunning": False}))
 
+    async def handle_tool_confirmation(self, connection: WebSocketConnection, payload: dict):
+        """Handle tool confirmation response — launches as background task"""
+        try:
+            confirmation_msg = ToolConfirmationMessage(**payload)
+
+            if not connection.authenticated:
+                await connection.send_message(MessageType.ERROR, {
+                    "message": "Not authenticated",
+                    "recoverable": False
+                })
+                return
+
+            callback = StreamingCallback(connection, self.ws_manager)
+            connection._is_stopped = False
+
+            logger.info(f"Processing tool confirmation for session {connection.session_id}: {confirmation_msg.decision}")
+
+            # Persist the user's tool confirmation decision
+            callback._persist("tool_confirmation_response", {
+                "decision": confirmation_msg.decision,
+                "modifications": confirmation_msg.modifications,
+            })
+
+            asyncio.create_task(update_conversation(connection.session_id, {"agentRunning": True}))
+
+            task = asyncio.create_task(
+                self._run_orchestrator_tool_confirmation(connection, confirmation_msg, callback)
+            )
+            connection._active_task = task
+            self.ws_manager.register_task(connection.get_key(), task)
+
+        except ValidationError as e:
+            logger.error(f"Invalid tool confirmation message: {e}")
+            await connection.send_message(MessageType.ERROR, {
+                "message": "Invalid tool confirmation format",
+                "recoverable": True
+            })
+
+    async def _run_orchestrator_tool_confirmation(self, connection: WebSocketConnection, confirmation_msg: ToolConfirmationMessage, callback):
+        """Background coroutine that runs tool confirmation resumption."""
+        try:
+            result = await self.orchestrator.resume_after_tool_confirmation_with_streaming(
+                session_id=connection.session_id,
+                user_id=connection.user_id,
+                project_id=connection.project_id,
+                decision=confirmation_msg.decision,
+                modifications=confirmation_msg.modifications,
+                streaming_callback=callback,
+                guidance_queue=connection.guidance_queue,
+            )
+            logger.info(f"Tool confirmation processed for session {connection.session_id}")
+        except asyncio.CancelledError:
+            logger.info(f"Tool confirmation task cancelled for session {connection.session_id}")
+        except Exception as e:
+            logger.error(f"Error processing tool confirmation: {e}")
+            try:
+                await callback.connection.send_message(MessageType.ERROR, {
+                    "message": f"Error processing tool confirmation: {str(e)}",
+                    "recoverable": True
+                })
+            except Exception:
+                pass
+        finally:
+            await callback.drain_persist_queue()
+            connection._active_task = None
+            self.ws_manager.clear_task(connection.get_key())
+            asyncio.create_task(update_conversation(connection.session_id, {"agentRunning": False}))
+
     async def handle_guidance(self, connection: WebSocketConnection, payload: dict):
         """Handle guidance message while agent is executing."""
         try:
@@ -973,6 +1065,8 @@ class WebSocketHandler:
                 await self.handle_approval(connection, payload)
             elif msg_type == MessageType.ANSWER:
                 await self.handle_answer(connection, payload)
+            elif msg_type == MessageType.TOOL_CONFIRMATION:
+                await self.handle_tool_confirmation(connection, payload)
             elif msg_type == MessageType.PING:
                 await self.handle_ping(connection, payload)
             elif msg_type == MessageType.GUIDANCE:

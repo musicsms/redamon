@@ -46,6 +46,8 @@ from orchestrator_helpers.nodes import (
     process_approval_node,
     await_question_node,
     process_answer_node,
+    await_tool_confirmation_node,
+    process_tool_confirmation_node,
 )
 
 checkpointer = MemorySaver()
@@ -294,6 +296,12 @@ class AgentOrchestrator:
         async def _generate_response(state, config=None):
             return await generate_response_node(state, config, llm=self.llm, streaming_callbacks=self._streaming_callbacks, neo4j_creds=neo4j_creds)
 
+        async def _await_tool_confirmation(state, config=None):
+            return await await_tool_confirmation_node(state, config)
+
+        async def _process_tool_confirmation(state, config=None):
+            return await process_tool_confirmation_node(state, config)
+
         builder.add_node("initialize", _initialize)
         builder.add_node("think", _think)
         builder.add_node("execute_tool", _execute_tool)
@@ -303,17 +311,20 @@ class AgentOrchestrator:
         builder.add_node("await_question", _await_question)
         builder.add_node("process_answer", _process_answer)
         builder.add_node("generate_response", _generate_response)
+        builder.add_node("await_tool_confirmation", _await_tool_confirmation)
+        builder.add_node("process_tool_confirmation", _process_tool_confirmation)
 
         # Entry point
         builder.add_edge(START, "initialize")
 
-        # Route after initialize - process approval, process answer, or continue to think
+        # Route after initialize - process approval, process answer, process tool confirmation, or think
         builder.add_conditional_edges(
             "initialize",
             self._route_after_initialize,
             {
                 "process_approval": "process_approval",
                 "process_answer": "process_answer",
+                "process_tool_confirmation": "process_tool_confirmation",
                 "think": "think",
                 "generate_response": "generate_response",
             }
@@ -328,6 +339,7 @@ class AgentOrchestrator:
                 "execute_plan": "execute_plan",
                 "await_approval": "await_approval",
                 "await_question": "await_question",
+                "await_tool_confirmation": "await_tool_confirmation",
                 "generate_response": "generate_response",
                 "think": "think",
             }
@@ -363,6 +375,21 @@ class AgentOrchestrator:
             }
         )
 
+        # Tool confirmation flow - pause for user input
+        builder.add_edge("await_tool_confirmation", END)
+
+        # Process tool confirmation routes to execute, think, or ends
+        builder.add_conditional_edges(
+            "process_tool_confirmation",
+            self._route_after_tool_confirmation,
+            {
+                "execute_tool": "execute_tool",
+                "execute_plan": "execute_plan",
+                "think": "think",
+                "generate_response": "generate_response",
+            }
+        )
+
         # Final response always ends
         builder.add_edge("generate_response", END)
 
@@ -374,7 +401,11 @@ class AgentOrchestrator:
     # =========================================================================
 
     def _route_after_initialize(self, state: AgentState) -> str:
-        """Route after initialization - process approval, process answer, guardrail block, or think."""
+        """Route after initialization - process approval, process answer, tool confirmation, guardrail block, or think."""
+        if state.get("tool_confirmation_response") and state.get("tool_confirmation_pending"):
+            logger.info("Routing to process_tool_confirmation - tool confirmation response pending")
+            return "process_tool_confirmation"
+
         if state.get("user_approval_response") and state.get("phase_transition_pending"):
             logger.info("Routing to process_approval - approval response pending")
             return "process_approval"
@@ -398,6 +429,9 @@ class AgentOrchestrator:
 
         if state.get("task_complete"):
             return "generate_response"
+
+        if state.get("awaiting_tool_confirmation"):
+            return "await_tool_confirmation"
 
         if state.get("awaiting_user_approval"):
             return "await_approval"
@@ -454,6 +488,16 @@ class AgentOrchestrator:
         if state.get("task_complete"):
             return "generate_response"
         return "think"
+
+    def _route_after_tool_confirmation(self, state: AgentState) -> str:
+        """Route after processing tool confirmation response."""
+        if state.get("task_complete"):
+            return "generate_response"
+        if state.get("_reject_tool"):
+            return "think"
+        if state.get("_tool_confirmation_mode") == "plan":
+            return "execute_plan"
+        return "execute_tool"
 
     # =========================================================================
     # PUBLIC API
@@ -623,6 +667,8 @@ class AgentOrchestrator:
             approval_request=state.get("phase_transition_pending"),
             awaiting_question=state.get("awaiting_user_question", False),
             question_request=state.get("pending_question"),
+            awaiting_tool_confirmation=state.get("awaiting_tool_confirmation", False),
+            tool_confirmation_request=state.get("tool_confirmation_pending"),
         )
 
     # =========================================================================
@@ -688,13 +734,20 @@ class AgentOrchestrator:
 
             if final_state:
                 response = self._build_response(final_state)
-                await streaming_callback.on_response(
-                    response.answer,
-                    response.iteration_count,
-                    response.current_phase,
-                    response.task_complete,
-                    response_tier=final_state.get("_response_tier", "full_report"),
+                # Don't send response when graph paused for user interaction
+                is_paused = (
+                    final_state.get("awaiting_tool_confirmation")
+                    or final_state.get("awaiting_user_approval")
+                    or final_state.get("awaiting_user_question")
                 )
+                if not is_paused:
+                    await streaming_callback.on_response(
+                        response.answer,
+                        response.iteration_count,
+                        response.current_phase,
+                        response.task_complete,
+                        response_tier=final_state.get("_response_tier", "full_report"),
+                    )
                 return response
             else:
                 raise RuntimeError("No final state returned from graph execution")
@@ -745,6 +798,10 @@ class AgentOrchestrator:
             update_data = {
                 "user_approval_response": decision,
                 "user_modification": modification,
+                # Clear stale fields to prevent duplicate emissions from
+                # fresh StreamingCallback (same pattern as tool confirmation).
+                "_decision": None,
+                "_completed_step": None,
             }
 
             final_state = None
@@ -754,13 +811,19 @@ class AgentOrchestrator:
 
             if final_state:
                 response = self._build_response(final_state)
-                await streaming_callback.on_response(
-                    response.answer,
-                    response.iteration_count,
-                    response.current_phase,
-                    response.task_complete,
-                    response_tier=final_state.get("_response_tier", "full_report"),
+                is_paused = (
+                    final_state.get("awaiting_tool_confirmation")
+                    or final_state.get("awaiting_user_approval")
+                    or final_state.get("awaiting_user_question")
                 )
+                if not is_paused:
+                    await streaming_callback.on_response(
+                        response.answer,
+                        response.iteration_count,
+                        response.current_phase,
+                        response.task_complete,
+                        response_tier=final_state.get("_response_tier", "full_report"),
+                    )
                 return response
             else:
                 raise RuntimeError("No final state returned")
@@ -809,6 +872,10 @@ class AgentOrchestrator:
 
             update_data = {
                 "user_question_answer": answer,
+                # Clear stale fields to prevent duplicate emissions from
+                # fresh StreamingCallback (same pattern as tool confirmation).
+                "_decision": None,
+                "_completed_step": None,
             }
 
             final_state = None
@@ -818,13 +885,143 @@ class AgentOrchestrator:
 
             if final_state:
                 response = self._build_response(final_state)
-                await streaming_callback.on_response(
-                    response.answer,
-                    response.iteration_count,
-                    response.current_phase,
-                    response.task_complete,
-                    response_tier=final_state.get("_response_tier", "full_report"),
+                is_paused = (
+                    final_state.get("awaiting_tool_confirmation")
+                    or final_state.get("awaiting_user_approval")
+                    or final_state.get("awaiting_user_question")
                 )
+                if not is_paused:
+                    await streaming_callback.on_response(
+                        response.answer,
+                        response.iteration_count,
+                        response.current_phase,
+                        response.task_complete,
+                        response_tier=final_state.get("_response_tier", "full_report"),
+                    )
+                return response
+            else:
+                raise RuntimeError("No final state returned")
+
+        except Exception as e:
+            logger.error(f"[{user_id}/{project_id}/{session_id}] Resume streaming error: {e}")
+            await streaming_callback.on_error(str(e), recoverable=False)
+            return InvokeResponse(error=str(e))
+        finally:
+            self._streaming_callbacks.pop(session_id, None)
+            self._guidance_queues.pop(session_id, None)
+
+    async def resume_after_tool_confirmation(
+        self,
+        session_id: str,
+        user_id: str,
+        project_id: str,
+        decision: str,
+        modifications: Optional[dict] = None
+    ) -> InvokeResponse:
+        """Resume execution after user provides tool confirmation response."""
+        if not self._initialized:
+            raise RuntimeError("Orchestrator not initialized. Call initialize() first.")
+
+        self._apply_project_settings(project_id)
+
+        if self.llm is None:
+            msg = "LLM not configured. Please add an API key in Global Settings."
+            logger.error(f"[{user_id}/{project_id}/{session_id}] {msg}")
+            return InvokeResponse(error=msg)
+
+        logger.info(f"[{user_id}/{project_id}/{session_id}] Resuming with tool confirmation: {decision}")
+
+        try:
+            config = create_config(user_id, project_id, session_id)
+
+            current_state = await self.graph.aget_state(config)
+
+            if not current_state or not current_state.values:
+                return InvokeResponse(error="No pending session found")
+
+            update_data = {
+                "tool_confirmation_response": decision,
+                "tool_confirmation_modification": modifications,
+            }
+
+            final_state = await self.graph.ainvoke(
+                update_data,
+                config,
+            )
+
+            return self._build_response(final_state)
+
+        except Exception as e:
+            logger.error(f"[{user_id}/{project_id}/{session_id}] Resume error: {e}")
+            return InvokeResponse(error=str(e))
+
+    async def resume_after_tool_confirmation_with_streaming(
+        self,
+        session_id: str,
+        user_id: str,
+        project_id: str,
+        decision: str,
+        modifications: Optional[dict],
+        streaming_callback,
+        guidance_queue=None
+    ) -> InvokeResponse:
+        """Resume after tool confirmation with streaming callbacks."""
+        if not self._initialized:
+            raise RuntimeError("Orchestrator not initialized. Call initialize() first.")
+
+        self._apply_project_settings(project_id)
+
+        if self.llm is None:
+            msg = "LLM not configured. Please add an API key in Global Settings."
+            logger.error(f"[{user_id}/{project_id}/{session_id}] {msg}")
+            await streaming_callback.on_error(msg, recoverable=False)
+            return InvokeResponse(error=msg)
+
+        logger.info(f"[{user_id}/{project_id}/{session_id}] Resuming with streaming tool confirmation: {decision}")
+
+        self._streaming_callbacks[session_id] = streaming_callback
+        self._guidance_queues[session_id] = guidance_queue
+
+        try:
+            config = create_config(user_id, project_id, session_id)
+
+            current_state = await self.graph.aget_state(config)
+            if not current_state or not current_state.values:
+                await streaming_callback.on_error("No pending session found", recoverable=False)
+                return InvokeResponse(error="No pending session found")
+
+            update_data = {
+                "tool_confirmation_response": decision,
+                "tool_confirmation_modification": modifications,
+                # Clear stale fields BEFORE astream starts — the first state
+                # yield is the checkpoint state (before process_tool_confirmation
+                # runs), and a new StreamingCallback has empty dedup sets, so
+                # stale _decision / _completed_step would be re-emitted as
+                # duplicate THINKING / TOOL_COMPLETE events.
+                "_decision": None,
+                "_completed_step": None,
+            }
+
+            final_state = None
+            async for event in self.graph.astream(update_data, config, stream_mode="values"):
+                final_state = event
+                await emit_streaming_events(event, streaming_callback)
+
+            if final_state:
+                response = self._build_response(final_state)
+                is_paused = (
+                    final_state.get("awaiting_tool_confirmation")
+                    or final_state.get("awaiting_user_approval")
+                    or final_state.get("awaiting_user_question")
+                )
+                if not is_paused:
+                    await streaming_callback.on_response(
+                        response.answer,
+                        response.iteration_count,
+                        response.current_phase,
+                        response.task_complete,
+                        response_tier=final_state.get("_response_tier", "full_report"),
+                    )
                 return response
             else:
                 raise RuntimeError("No final state returned")
@@ -878,13 +1075,19 @@ class AgentOrchestrator:
 
             if final_state:
                 response = self._build_response(final_state)
-                await streaming_callback.on_response(
-                    response.answer,
-                    response.iteration_count,
-                    response.current_phase,
-                    response.task_complete,
-                    response_tier=final_state.get("_response_tier", "full_report"),
+                is_paused = (
+                    final_state.get("awaiting_tool_confirmation")
+                    or final_state.get("awaiting_user_approval")
+                    or final_state.get("awaiting_user_question")
                 )
+                if not is_paused:
+                    await streaming_callback.on_response(
+                        response.answer,
+                        response.iteration_count,
+                        response.current_phase,
+                        response.task_complete,
+                        response_tier=final_state.get("_response_tier", "full_report"),
+                    )
                 return response
             else:
                 raise RuntimeError("No final state returned")

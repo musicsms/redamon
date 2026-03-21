@@ -15,6 +15,7 @@ export enum MessageType {
   QUERY = 'query',
   APPROVAL = 'approval',
   ANSWER = 'answer',
+  TOOL_CONFIRMATION = 'tool_confirmation',
   PING = 'ping',
   GUIDANCE = 'guidance',
   STOP = 'stop',
@@ -43,6 +44,7 @@ export enum MessageType {
   PLAN_COMPLETE = 'plan_complete',
   PLAN_ANALYSIS = 'plan_analysis',
   DEEP_THINK = 'deep_think',
+  TOOL_CONFIRMATION_REQUEST = 'tool_confirmation_request',
 }
 
 // =============================================================================
@@ -81,6 +83,20 @@ export interface StoppedPayload {
   message: string
   iteration: number
   phase: string
+}
+
+export interface ToolConfirmationTool {
+  tool_name: string
+  tool_args: Record<string, unknown>
+  rationale?: string
+}
+
+export interface ToolConfirmationRequestPayload {
+  mode: 'single' | 'plan'
+  tools: ToolConfirmationTool[]
+  reasoning?: string
+  phase?: string
+  iteration?: number
 }
 
 // =============================================================================

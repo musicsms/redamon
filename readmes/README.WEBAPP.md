@@ -34,18 +34,22 @@ webapp/
 │   │   │   └── components/
 │   │   │       ├── GraphToolbar/      # Recon controls
 │   │   │       ├── ReconLogsDrawer/   # Real-time logs
-│   │   │       └── ReconConfirmModal/ # Confirmation dialog
+│   │   │       ├── ReconConfirmModal/ # Confirmation dialog
+│   │   │       └── AIAssistantDrawer/ # Agent chat & tool confirmation UI
 │   │   ├── layout.tsx         # Root layout
 │   │   ├── page.tsx           # Home page
 │   │   └── globals.css        # Global styles
 │   ├── components/            # React components
 │   ├── hooks/                 # Custom hooks
 │   │   ├── useReconStatus.ts  # Status polling
-│   │   └── useReconSSE.ts     # SSE log streaming
+│   │   ├── useReconSSE.ts     # SSE log streaming
+│   │   └── useAgentWebSocket.ts # Agent WebSocket (queries, approvals, tool confirmation)
 │   ├── lib/
 │   │   ├── neo4j.ts           # Neo4j driver
 │   │   ├── prisma.ts          # Prisma client
-│   │   └── recon-types.ts     # TypeScript types
+│   │   ├── recon-types.ts     # TypeScript types
+│   │   ├── websocket-types.ts # Agent WebSocket message types
+│   │   └── hard-guardrail.ts  # Deterministic domain blocklist (gov/mil/edu/int)
 │   └── providers/             # React context providers
 ├── public/                    # Static assets
 ├── Dockerfile                 # Production multi-stage build
@@ -453,6 +457,47 @@ const { logs, currentPhase, currentPhaseNumber, isConnected, clearLogs } = useRe
 | `GraphToolbar` | Contains Start Recon and Download JSON buttons |
 | `ReconConfirmModal` | Confirmation dialog before starting recon (warns about data replacement) |
 | `ReconLogsDrawer` | Slide-out panel showing real-time logs with phase progress |
+
+### AI Agent Chat (AIAssistantDrawer)
+
+The `AIAssistantDrawer` is the primary interface for interacting with the RedAmon pentesting agent. It communicates over WebSocket via the `useAgentWebSocket` hook and renders a real-time timeline of agent activity.
+
+#### Key Components
+
+| Component | Description |
+|-----------|-------------|
+| `AIAssistantDrawer` | Main drawer component — chat input, WebSocket management, message handling, conversation history |
+| `AgentTimeline` | Renders chronological timeline of thinking steps, tool executions, plan waves, and confirmations |
+| `ToolExecutionCard` | Individual tool execution card — shows tool name, args, output chunks, status, and **Allow/Deny** buttons for dangerous tools |
+| `PlanWaveCard` | Parallel wave card — groups multiple tools in a plan, shows per-tool status, and **Allow/Deny** for waves containing dangerous tools |
+| `TodoListWidget` | Agent's live task list |
+| `FileDownloadCard` | Download card for agent-generated files (reports, exports) |
+
+#### Tool Confirmation in the Chat
+
+When `REQUIRE_TOOL_CONFIRMATION` is enabled in Project Settings, the agent pauses before executing dangerous tools and the chat renders inline confirmation cards:
+
+- **Single tool**: A `ToolExecutionCard` appears with `status: "pending_approval"` and **Allow / Deny** buttons
+- **Parallel wave**: A `PlanWaveCard` appears listing all dangerous tools in the wave with **Allow / Deny** buttons
+- The chat input is disabled while awaiting confirmation
+- On **Allow**: the card transitions to `running` and the tool executes
+- On **Deny**: the card shows an error state and the agent re-plans with an alternative approach
+
+When the setting is disabled, an orange warning badge appears in the chat header.
+
+#### WebSocket Hook API
+
+```typescript
+const {
+  sendQuery,              // Send user question
+  sendApproval,           // Respond to phase transition approval
+  sendToolConfirmation,   // Respond to tool confirmation (approve/modify/reject)
+  sendAnswer,             // Answer agent's question
+  sendGuidance,           // Send mid-execution guidance
+  sendStop,               // Stop agent execution
+  sendResume,             // Resume from checkpoint
+} = useAgentWebSocket({ userId, projectId, sessionId, onMessage })
+```
 
 ### Phase Detection
 

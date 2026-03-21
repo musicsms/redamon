@@ -392,12 +392,12 @@ export function AgentBehaviourSection({ data, updateField }: AgentBehaviourSecti
           <div className={styles.subSection}>
             <h3 className={styles.subSectionTitle}>Approval Gates</h3>
 
-            {(!data.agentRequireApprovalForExploitation || !data.agentRequireApprovalForPostExploitation || !(data.agentGuardrailEnabled ?? true)) && (
+            {(!data.agentRequireApprovalForExploitation || !data.agentRequireApprovalForPostExploitation || !(data.agentGuardrailEnabled ?? true) || !(data.agentRequireToolConfirmation ?? true)) && (
               <div className={styles.shodanWarning} style={{ borderColor: 'rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.08)' }}>
                 <AlertTriangle size={14} style={{ color: '#ef4444' }} />
                 <span>
                   <strong>Autonomous operation risk:</strong> One or more safety gates are disabled.
-                  The AI agent may perform exploitation, post-exploitation, or out-of-scope actions without human approval.
+                  The AI agent may perform exploitation, post-exploitation, dangerous tool executions, or out-of-scope actions without human approval.
                   This significantly increases the risk of unintended damage to target systems.
                   You assume full responsibility for all autonomous agent actions.
                   See <a href="https://github.com/samugit83/redamon/blob/master/DISCLAIMER.md" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>DISCLAIMER.md</a> for details.
@@ -427,11 +427,26 @@ export function AgentBehaviourSection({ data, updateField }: AgentBehaviourSecti
             </div>
             <div className={styles.toggleRow}>
               <div>
+                <span className={styles.toggleLabel}>Require Tool Confirmation</span>
+                <p className={styles.toggleDescription}>
+                  Manual confirmation before executing dangerous tools
+                  (nmap, nuclei, metasploit, hydra, kali shell, etc.).
+                </p>
+              </div>
+              <Toggle
+                checked={data.agentRequireToolConfirmation ?? true}
+                onChange={(checked) => updateField('agentRequireToolConfirmation', checked)}
+              />
+            </div>
+            <div className={styles.toggleRow}>
+              <div>
                 <span className={styles.toggleLabel}>Agent Guardrail</span>
                 <p className={styles.toggleDescription}>
                   Verify target authorization on session start and enforce scope restrictions
                   in the agent&apos;s prompt. Blocks the agent from operating against well-known
                   public targets and prevents out-of-scope actions.
+                  Government, military, educational, and international organization domains
+                  (.gov, .mil, .edu, .int) are always blocked regardless of this setting.
                 </p>
               </div>
               <Toggle

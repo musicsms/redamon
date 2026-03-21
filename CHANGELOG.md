@@ -7,19 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
-
-### Added
-- **Hakrawler Integration** — DOM-aware web crawler running as Docker container (`jauderho/hakrawler`). Runs in parallel with Katana, GAU, and Kiterunner during resource enumeration. Configurable depth, threads, subdomain inclusion, and scope filtering. Disabled automatically in stealth mode.
-- **jsluice JavaScript Analysis** — Passive JS analysis tool for extracting URLs, API endpoints, and embedded secrets (AWS keys, GitHub tokens, GCP credentials, etc.) from discovered JavaScript files. Runs sequentially after the parallel crawling phase.
-- **Secret Node in Neo4j** — Generic `Secret` node type linked to `BaseURL` via `[:HAS_SECRET]`. Source-agnostic design supports jsluice now and future secret discovery tools. Includes deduplication, severity classification, and redacted samples.
-- **Hakrawler enabled by default** — New projects have Hakrawler and Include Subdomains enabled by default.
 
 ---
 
 ## [3.0.0] - 2026-03-15
 
 ### Added
+
+- **Hakrawler Integration** — DOM-aware web crawler running as Docker container (`jauderho/hakrawler`). Runs in parallel with Katana, GAU, and Kiterunner during resource enumeration. Configurable depth, threads, subdomain inclusion, and scope filtering. Disabled automatically in stealth mode.
+- **jsluice JavaScript Analysis** — Passive JS analysis tool for extracting URLs, API endpoints, and embedded secrets (AWS keys, GitHub tokens, GCP credentials, etc.) from discovered JavaScript files. Runs sequentially after the parallel crawling phase.
+- **Secret Node in Neo4j** — Generic `Secret` node type linked to `BaseURL` via `[:HAS_SECRET]`. Source-agnostic design supports jsluice now and future secret discovery tools. Includes deduplication, severity classification, and redacted samples.
+- **Hakrawler enabled by default** — New projects have Hakrawler and Include Subdomains enabled by default.
+- **Tool Confirmation Gate** — per-tool human-in-the-loop safety gate that pauses the agent before executing dangerous tools (`execute_nmap`, `execute_naabu`, `execute_nuclei`, `execute_curl`, `metasploit_console`, `msf_restart`, `kali_shell`, `execute_code`, `execute_hydra`). Full multi-layer integration:
+  - **Backend**: `DANGEROUS_TOOLS` frozenset in `project_settings.py`, `ToolConfirmationRequest` Pydantic model in `state.py`, two new LangGraph nodes (`await_tool_confirmation`, `process_tool_confirmation`) in `tool_confirmation_nodes.py`
+  - **Orchestrator**: think node detects dangerous tools in both single-tool and plan-wave decisions, sets `awaiting_tool_confirmation` and `tool_confirmation_pending` state, graph pauses at `await_tool_confirmation` (END) and resumes via `process_tool_confirmation` routing to execute_tool/execute_plan (approve), think (reject), or patching tool_args (modify)
+  - **WebSocket**: `tool_confirmation` (client→server) and `tool_confirmation_request` (server→client) message types, `ToolConfirmationMessage` model, `handle_tool_confirmation()` handler with streaming resumption
+  - **Frontend**: inline **Allow / Deny** buttons on `ToolExecutionCard` (single mode) and `PlanWaveCard` (plan mode) with `pending_approval` status, `awaitingToolConfirmation` state disables chat input, warning badge in chat header when disabled
+  - **Settings**: `REQUIRE_TOOL_CONFIRMATION` (default: `true`) toggle in Project Settings → Agent Behaviour → Approval Gates, with autonomous operation risk warning when disabled
+  - **Conversation restore**: tool confirmation requests and responses persisted to DB, correctly restored on conversation reload with Allow/Deny buttons re-activated if no subsequent agent work occurred
+  - **Prisma schema**: `agentRequireToolConfirmation` Boolean field (default: true)
+- **Hard Guardrail** — deterministic, non-disableable domain blocklist for government, military, educational, and international organization domains. Cannot be toggled off regardless of project settings. Implemented identically in Python (`agentic/hard_guardrail.py`) and TypeScript (`webapp/src/lib/hard-guardrail.ts`):
+  - Blocks TLD suffix patterns: `.gov`, `.mil`, `.edu`, `.int`, and country-code variants (`.gov.uk`, `.ac.jp`, `.gob.mx`, `.gouv.fr`, etc.)
+  - Blocks 300+ exact intergovernmental organization domains on generic TLDs (UN system, EU institutions, development banks, arms control bodies, international courts, etc.)
+  - Subdomain matching: blocks all subdomains of exact-blocked domains
+  - Provides defense-in-depth alongside the soft LLM-based guardrail
 
 - **Zero-config setup — `.env` file completely removed** — all user-configurable settings (NVD API key, ngrok auth token, chisel server URL/auth) are now managed from the Global Settings UI page and stored in PostgreSQL. No `.env` or `.env.example` file is needed.
   - **Global Settings → Tool API Keys**: NVD API key added alongside Tavily, Shodan, SerpAPI

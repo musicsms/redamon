@@ -100,7 +100,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Target guardrail: check if domain/IPs are allowed before creating
+    // Hard guardrail: deterministic, non-disableable — always blocks government/public domains
+    if (!ipMode && targetDomain) {
+      const { isHardBlockedDomain } = await import('@/lib/hard-guardrail')
+      const hardCheck = isHardBlockedDomain(targetDomain)
+      if (hardCheck.blocked) {
+        return NextResponse.json(
+          { error: `Target permanently blocked: ${hardCheck.reason}` },
+          { status: 403 }
+        )
+      }
+    }
+
+    // Soft guardrail (LLM-based): check if domain/IPs are allowed before creating
     if (optionalParams.targetGuardrailEnabled !== false) {
       try {
         const guardrailResponse = await fetch(`${AGENT_API_URL}/guardrail/check-target`, {

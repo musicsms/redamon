@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Save, X, Loader2, AlertTriangle, Download, ShieldAlert } from 'lucide-react'
 import type { Project } from '@prisma/client'
 import { validateProjectForm } from '@/lib/validation'
+import { isHardBlockedDomain } from '@/lib/hard-guardrail'
 import styles from './ProjectForm.module.css'
 
 // Import sections
@@ -241,6 +242,15 @@ export function ProjectForm({
       return
     }
 
+    // Hard guardrail: block government/public domains before hitting API
+    if (!formData.ipMode && formData.targetDomain) {
+      const hardCheck = isHardBlockedDomain(formData.targetDomain)
+      if (hardCheck.blocked) {
+        setGuardrailError(hardCheck.reason)
+        return
+      }
+    }
+
     // Block submission if there's a conflict
     if (conflict?.hasConflict) {
       alert('Cannot save project: ' + conflict.message)
@@ -253,9 +263,11 @@ export function ProjectForm({
       await onSubmit(submitData)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save project'
-      if (message.toLowerCase().includes('guardrail')) {
-        // Extract the reason after "Target blocked by guardrail: "
-        const reason = message.replace(/^Target blocked by guardrail:\s*/i, '')
+      if (message.toLowerCase().includes('guardrail') || message.toLowerCase().includes('permanently blocked')) {
+        // Extract the reason from guardrail error messages
+        const reason = message
+          .replace(/^Target blocked by guardrail:\s*/i, '')
+          .replace(/^Target permanently blocked:\s*/i, '')
         setGuardrailError(reason || message)
       } else {
         alert(message)

@@ -42,6 +42,7 @@ interface UseAgentWebSocketReturn {
   error: Error | null
   sendQuery: (question: string) => void
   sendApproval: (decision: 'approve' | 'modify' | 'abort', modification?: string) => void
+  sendToolConfirmation: (decision: 'approve' | 'modify' | 'reject', modifications?: Record<string, any>) => void
   sendAnswer: (answer: string) => void
   sendGuidance: (message: string) => void
   sendStop: () => void
@@ -136,6 +137,17 @@ export function useAgentWebSocket({
 
     const approvalPayload: ApprovalPayload = { decision, modification }
     sendMessage(MessageType.APPROVAL, approvalPayload)
+  }, [sendMessage])
+
+  // Public API: Send tool confirmation
+  const sendToolConfirmation = useCallback((decision: 'approve' | 'modify' | 'reject', modifications?: Record<string, any>) => {
+    if (!isAuthenticatedRef.current) {
+      return
+    }
+
+    const payload: any = { decision }
+    if (modifications) payload.modifications = modifications
+    sendMessage(MessageType.TOOL_CONFIRMATION, payload)
   }, [sendMessage])
 
   // Public API: Send answer
@@ -366,6 +378,7 @@ export function useAgentWebSocket({
     error,
     sendQuery,
     sendApproval,
+    sendToolConfirmation,
     sendAnswer,
     sendGuidance,
     sendStop,

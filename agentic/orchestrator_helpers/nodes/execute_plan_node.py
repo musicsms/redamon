@@ -88,9 +88,9 @@ async def _execute_single_step(
         step["error_message"] = roe_msg
         if streaming_cb:
             try:
-                await streaming_cb.on_tool_start(tool_name, tool_args, wave_id=wave_id)
+                await streaming_cb.on_tool_start(tool_name, tool_args, wave_id=wave_id, step_index=step_index)
                 await streaming_cb.on_tool_complete(
-                    tool_name, False, roe_msg, wave_id=wave_id,
+                    tool_name, False, roe_msg, wave_id=wave_id, step_index=step_index,
                 )
             except Exception as e:
                 logger.warning(f"Error emitting RoE block events: {e}")
@@ -99,7 +99,7 @@ async def _execute_single_step(
     # Emit tool_start
     if streaming_cb:
         try:
-            await streaming_cb.on_tool_start(tool_name, tool_args, wave_id=wave_id)
+            await streaming_cb.on_tool_start(tool_name, tool_args, wave_id=wave_id, step_index=step_index)
         except Exception as e:
             logger.warning(f"Error emitting tool_start: {e}")
 
@@ -112,9 +112,9 @@ async def _execute_single_step(
         is_long_running_hydra = (tool_name == "execute_hydra")
 
         # Create a wave-aware progress callback
-        async def _wave_progress(tn, chunk, is_final=False, _wid=wave_id):
+        async def _wave_progress(tn, chunk, is_final=False, _wid=wave_id, _si=step_index):
             if streaming_cb:
-                await streaming_cb.on_tool_output_chunk(tn, chunk, is_final=is_final, wave_id=_wid)
+                await streaming_cb.on_tool_output_chunk(tn, chunk, is_final=is_final, wave_id=_wid, step_index=_si)
 
         if is_long_running_msf and streaming_cb:
             result = await tool_executor.execute_with_progress(
@@ -150,7 +150,7 @@ async def _execute_single_step(
     if not is_long_running and streaming_cb and tool_output:
         try:
             await streaming_cb.on_tool_output_chunk(
-                tool_name, tool_output, is_final=True, wave_id=wave_id,
+                tool_name, tool_output, is_final=True, wave_id=wave_id, step_index=step_index,
             )
         except Exception as e:
             logger.warning(f"Error emitting tool output chunk: {e}")
@@ -168,6 +168,7 @@ async def _execute_single_step(
                 step["success"],
                 "",
                 wave_id=wave_id,
+                step_index=step_index,
             )
         except Exception as e:
             logger.warning(f"Error emitting tool_complete: {e}")

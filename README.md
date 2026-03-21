@@ -3,7 +3,7 @@
   <br/>
   <img src="assets/title.svg" alt="RedAmon" width="340"/>
   <br/>
-  <b><i><big><big>AI-powered security testing — from reconnaissance to remediation.</big></big></i></b>
+  <b><i><big><big>Unmask the hidden before the world does</big></big></i></b>
 </p>
 <p align="center" style="font-size: 120%;">
   An autonomous AI framework that chains reconnaissance, exploitation, and post-exploitation into a single pipeline, then goes further by triaging every finding, implementing code fixes, and opening pull requests on your repository. From first packet to merged patch, with human oversight at every critical step.
@@ -21,7 +21,6 @@
   <img height="24" src="https://img.shields.io/badge/Kali-Powered-466A7A?style=flat&logo=kalilinux&logoColor=white" alt="Kali Powered"/>
   <img height="24" src="https://img.shields.io/badge/Docker-Compose-1A7EC2?style=flat&logo=docker&logoColor=white" alt="Docker"/>
   <img height="24" src="https://img.shields.io/badge/IP%2FCIDR-TARGETING-0D7377?style=flat" alt="IP/CIDR Targeting"/>
-
   <img height="24" src="https://img.shields.io/badge/30+-SECURITY%20TOOLS-CC8F00?style=flat&logo=hack-the-box&logoColor=white" alt="30+ Security Tools"/>
   <img height="24" src="https://img.shields.io/badge/185,000+-DETECTION%20RULES-8B1142?style=flat" alt="185,000+ Detection Rules"/>
   <img height="24" src="https://img.shields.io/badge/190+-PROJECT%20SETTINGS-00899B?style=flat" alt="190+ Settings"/>
@@ -375,9 +374,15 @@ Upload a RoE document (PDF, TXT, MD, DOCX) to auto-configure project settings an
 
 ### Target Guardrail
 
-LLM-based guardrail preventing targeting of unauthorized domains — blocks government sites, major tech companies, financial institutions, and social media platforms. Operates at both project creation and agent initialization.
+LLM-based guardrail preventing targeting of unauthorized domains — blocks government sites, major tech companies, financial institutions, and social media platforms. Operates at both project creation and agent initialization. Government, military, educational, and international organization domains (`.gov`, `.mil`, `.edu`, `.int`) are permanently blocked by a deterministic hard guardrail that cannot be disabled.
 
 > **[Wiki: Creating a Project](https://github.com/samugit83/redamon/wiki/Creating-a-Project)**
+
+### Tool Confirmation
+
+Per-tool human-in-the-loop gate for dangerous operations. When enabled, the agent pauses before executing high-impact tools (Nmap, Nuclei, Metasploit, Hydra, Kali shell, code execution) and presents an inline **Allow / Deny** prompt in the chat timeline. Supports both single-tool and parallel-wave (plan) confirmation modes. Users can approve, reject, or modify tool arguments before execution proceeds. Disabled via the `Require Tool Confirmation` toggle in Project Settings.
+
+> **[Wiki: Pentest Agent — Tool Confirmation](https://github.com/samugit83/redamon/wiki/Pentest-Agent#tool-confirmation-gate)**
 
 ### Pentest Reports
 

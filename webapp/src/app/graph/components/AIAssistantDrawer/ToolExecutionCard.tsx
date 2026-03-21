@@ -24,14 +24,21 @@ interface ToolExecutionCardProps {
   onToggleExpand: () => void
   missingApiKey?: boolean
   onAddApiKey?: () => void
+  onApprove?: () => void
+  onReject?: () => void
+  confirmationDisabled?: boolean
 }
 
-export function ToolExecutionCard({ item, isExpanded, onToggleExpand, missingApiKey, onAddApiKey }: ToolExecutionCardProps) {
+export function ToolExecutionCard({ item, isExpanded, onToggleExpand, missingApiKey, onAddApiKey, onApprove, onReject, confirmationDisabled }: ToolExecutionCardProps) {
   const [copied, setCopied] = useState(false)
   const [duration, setDuration] = useState(0)
 
   // Calculate duration for running tools
   useEffect(() => {
+    if (item.status === 'pending_approval') {
+      setDuration(0)
+      return
+    }
     if (item.status === 'running') {
       const interval = setInterval(() => {
         const elapsed = Date.now() - item.timestamp.getTime()
@@ -61,6 +68,8 @@ export function ToolExecutionCard({ item, isExpanded, onToggleExpand, missingApi
 
   const getStatusIcon = () => {
     switch (item.status) {
+      case 'pending_approval':
+        return <Loader2 size={14} className={`${styles.statusIcon} ${styles.spinner}`} />
       case 'running':
         return <Loader2 size={14} className={`${styles.statusIcon} ${styles.spinner}`} />
       case 'success':
@@ -72,6 +81,8 @@ export function ToolExecutionCard({ item, isExpanded, onToggleExpand, missingApi
 
   const getStatusText = () => {
     switch (item.status) {
+      case 'pending_approval':
+        return 'Awaiting approval'
       case 'running':
         return `Running... (${duration}s)`
       case 'success':
@@ -83,6 +94,8 @@ export function ToolExecutionCard({ item, isExpanded, onToggleExpand, missingApi
 
   const getStatusClass = () => {
     switch (item.status) {
+      case 'pending_approval':
+        return styles.statusPendingApproval
       case 'running':
         return styles.statusRunning
       case 'success':
@@ -135,6 +148,12 @@ export function ToolExecutionCard({ item, isExpanded, onToggleExpand, missingApi
               {getStatusIcon()}
               <span>{getStatusText()}</span>
             </div>
+            {item.status === 'pending_approval' && onApprove && (
+              <div className={styles.confirmActions}>
+                <button className={styles.allowBtn} onClick={(e) => { e.stopPropagation(); onApprove() }} disabled={confirmationDisabled}>Allow</button>
+                <button className={styles.denyBtn} onClick={(e) => { e.stopPropagation(); onReject?.() }} disabled={confirmationDisabled}>Deny</button>
+              </div>
+            )}
             <button
               className={styles.copyButton}
               onClick={(e) => {

@@ -68,13 +68,14 @@ def detect_generated_file(step: dict) -> dict | None:
 
 
 def _make_event_id(prefix: str, obj: dict, *extra_keys) -> str:
-    """Build a unique ID for deduplication from a state object.
+    """Build a content-based unique ID for deduplication.
 
-    Uses id() of the dict as primary key (fast, works within a single
-    astream session), plus a content-based fallback for checkpoint reloads
-    where the dict is re-created with the same data.
+    Uses ONLY content fields — not id(obj) — because LangGraph reconstructs
+    state dicts between node yields, giving the same content a new id().
+    Content-only dedup correctly prevents re-emission of stale _completed_step
+    and _decision across node boundaries within the same astream session.
     """
-    parts = [prefix, str(id(obj))]
+    parts = [prefix]
     for k in extra_keys:
         parts.append(str(obj.get(k, ""))[:200])
     return "|".join(parts)
@@ -101,7 +102,11 @@ async def emit_streaming_events(state: dict, callback) -> None:
             await callback.on_todo_update(state["todo_list"])
 
         # Approval request — dedup via callback, not state dict
-        if state.get("awaiting_user_approval") and state.get("phase_transition_pending"):
+        # Skip when user_approval_response is set (user already responded —
+        # on resume the first yield still has stale checkpoint fields).
+        if (state.get("awaiting_user_approval")
+                and state.get("phase_transition_pending")
+                and not state.get("user_approval_response")):
             pending = state["phase_transition_pending"]
             approval_key = f"{pending.get('from_phase', '')}_{pending.get('to_phase', '')}"
             if callback._emitted_approval_key != approval_key:
@@ -109,12 +114,28 @@ async def emit_streaming_events(state: dict, callback) -> None:
                 callback._emitted_approval_key = approval_key
 
         # Question request — dedup via callback, not state dict
-        if state.get("awaiting_user_question") and state.get("pending_question"):
+        # Skip when user_question_answer is set (user already responded).
+        if (state.get("awaiting_user_question")
+                and state.get("pending_question")
+                and not state.get("user_question_answer")):
             pending = state["pending_question"]
             question_key = f"{pending.get('phase', '')}_{hash(pending.get('question', '')[:100])}"
             if callback._emitted_question_key != question_key:
                 await callback.on_question_request(pending)
                 callback._emitted_question_key = question_key
+
+        # Tool confirmation request — dedup via callback
+        # Also skip when tool_confirmation_response is already set (user already
+        # responded) — on resume the first yield still has the stale checkpoint
+        # fields but the response is merged in from update_data.
+        if (state.get("awaiting_tool_confirmation")
+                and state.get("tool_confirmation_pending")
+                and not state.get("tool_confirmation_response")):
+            pending = state["tool_confirmation_pending"]
+            conf_key = pending.get("confirmation_id", "")
+            if callback._emitted_tool_confirmation_key != conf_key:
+                await callback.on_tool_confirmation_request(pending)
+                callback._emitted_tool_confirmation_key = conf_key
 
         # 1. Emit tool_complete for PREVIOUS completed step (if any)
         #    This MUST come before thinking, so the frontend sees:
@@ -122,7 +143,8 @@ async def emit_streaming_events(state: dict, callback) -> None:
         if "_completed_step" in state and state["_completed_step"]:
             cstep = state["_completed_step"]
             cstep_id = _make_event_id("tc", cstep, "tool_name", "output_analysis")
-            if cstep.get("success") is not None and cstep.get("output_analysis") and cstep_id not in callback._emitted_tool_complete_ids:
+            tool_name = cstep.get("tool_name")
+            if tool_name and tool_name != "tool_rejection" and cstep.get("success") is not None and cstep.get("output_analysis") and cstep_id not in callback._emitted_tool_complete_ids:
                 await callback.on_tool_complete(
                     cstep.get("tool_name", "unknown"),
                     cstep["success"],
@@ -167,7 +189,8 @@ async def emit_streaming_events(state: dict, callback) -> None:
                     logger.error(f"Error emitting thinking event: {e}")
 
         # 3. Emit tool_start and output chunks for CURRENT step (new tool)
-        if "_current_step" in state and state["_current_step"]:
+        #    Skip if tool confirmation is pending — tool hasn't actually started yet
+        if "_current_step" in state and state["_current_step"] and not state.get("awaiting_tool_confirmation"):
             step = state["_current_step"]
             start_id = _make_event_id("ts", step, "tool_name")
             output_id = _make_event_id("to", step, "tool_name", "tool_output")

@@ -881,6 +881,7 @@ export default function GraphPage() {
         isOtherChainsHidden={isOtherChainsHidden}
         onToggleOtherChains={handleToggleOtherChains}
         hasOtherChains={sessionChainIds.length > 1 || (sessionChainIds.length === 1 && sessionChainIds[0] !== sessionId)}
+        requireToolConfirmation={currentProject?.agentRequireToolConfirmation ?? true}
       />
 
       <ReconConfirmModal

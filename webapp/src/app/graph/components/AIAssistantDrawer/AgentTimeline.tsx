@@ -35,12 +35,13 @@ export interface ToolExecutionItem {
   timestamp: Date
   tool_name: string
   tool_args: Record<string, unknown>
-  status: 'running' | 'success' | 'error'
+  status: 'running' | 'success' | 'error' | 'pending_approval'
   output_chunks: string[]
   final_output?: string
   duration?: number
   actionable_findings?: string[]
   recommended_next_steps?: string[]
+  step_index?: number  // Disambiguates same-name tools within a wave
 }
 
 export interface PlanWaveItem {
@@ -51,7 +52,7 @@ export interface PlanWaveItem {
   plan_rationale: string
   tool_count: number
   tools: ToolExecutionItem[]
-  status: 'running' | 'success' | 'partial' | 'error'
+  status: 'running' | 'success' | 'partial' | 'error' | 'pending_approval'
   interpretation?: string
   actionable_findings?: string[]
   recommended_next_steps?: string[]
@@ -75,9 +76,11 @@ export interface AgentTimelineProps {
   onItemExpand?: (itemId: string) => void
   missingApiKeys?: Set<string>
   onAddApiKey?: (toolId: string) => void
+  onToolConfirmation?: (itemId: string, decision: 'approve' | 'reject') => void
+  toolConfirmationDisabled?: boolean
 }
 
-export function AgentTimeline({ items, isStreaming, onItemExpand, missingApiKeys, onAddApiKey }: AgentTimelineProps) {
+export function AgentTimeline({ items, isStreaming, onItemExpand, missingApiKeys, onAddApiKey, onToolConfirmation, toolConfirmationDisabled }: AgentTimelineProps) {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
 
   const toggleExpand = (itemId: string) => {
@@ -132,6 +135,9 @@ export function AgentTimeline({ items, isStreaming, onItemExpand, missingApiKeys
                 onToggleExpand={() => toggleExpand(item.id)}
                 missingApiKeys={missingApiKeys}
                 onAddApiKey={onAddApiKey}
+                onApprove={item.status === 'pending_approval' ? () => onToolConfirmation?.(item.id, 'approve') : undefined}
+                onReject={item.status === 'pending_approval' ? () => onToolConfirmation?.(item.id, 'reject') : undefined}
+                confirmationDisabled={toolConfirmationDisabled}
               />
             ) : (
               <ToolExecutionCard
@@ -140,6 +146,9 @@ export function AgentTimeline({ items, isStreaming, onItemExpand, missingApiKeys
                 onToggleExpand={() => toggleExpand(item.id)}
                 missingApiKey={missingApiKeys?.has(item.tool_name)}
                 onAddApiKey={onAddApiKey ? () => onAddApiKey(item.tool_name) : undefined}
+                onApprove={item.status === 'pending_approval' ? () => onToolConfirmation?.(item.id, 'approve') : undefined}
+                onReject={item.status === 'pending_approval' ? () => onToolConfirmation?.(item.id, 'reject') : undefined}
+                confirmationDisabled={toolConfirmationDisabled}
               />
             )}
           </div>

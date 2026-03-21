@@ -251,6 +251,17 @@ async def start_recon(project_id: str, request: ReconStartRequest):
             with urllib.request.urlopen(req, timeout=5) as resp:
                 if resp.status == 200:
                     project = json_mod.loads(resp.read().decode())
+
+                    # Hard guardrail: deterministic, non-disableable — always blocks government/public domains
+                    if not project.get('ipMode', False) and project.get('targetDomain'):
+                        from hard_guardrail import is_hard_blocked
+                        blocked, reason = is_hard_blocked(project['targetDomain'])
+                        if blocked:
+                            raise HTTPException(
+                                status_code=403,
+                                detail=f"Hard guardrail: {reason}"
+                            )
+
                     if project.get('roeEnabled') and project.get('roeTimeWindowEnabled'):
                         tz_name = project.get('roeTimeWindowTimezone', 'UTC')
                         try:

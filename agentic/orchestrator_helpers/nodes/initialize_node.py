@@ -192,7 +192,21 @@ async def initialize_node(state: AgentState, config, *, llm, neo4j_creds) -> dic
             # Inject warning into state so it appears in the agent's prompt context
             state["_roe_warnings"] = warnings
 
-    # Scope guardrail: on first invocation, verify the project target is authorized
+    # Hard guardrail: deterministic, non-disableable — always blocks government/public domains
+    # Runs unconditionally regardless of AGENT_GUARDRAIL_ENABLED setting
+    if not state.get("execution_trace") and not state.get("_guardrail_blocked"):
+        from hard_guardrail import is_hard_blocked
+        target_domain = get_setting('TARGET_DOMAIN', '')
+        ip_mode = get_setting('IP_MODE', False)
+        if not ip_mode and target_domain:
+            blocked, reason = is_hard_blocked(target_domain)
+            if blocked:
+                logger.warning(
+                    f"[{user_id}/{project_id}/{session_id}] HARD GUARDRAIL BLOCKED: {reason}"
+                )
+                return _build_guardrail_block(user_id, project_id, session_id, target_domain, reason)
+
+    # Soft guardrail (LLM-based): on first invocation, verify the project target is authorized
     # Skip if already blocked (avoid redundant LLM calls on retry in same session)
     if get_setting('AGENT_GUARDRAIL_ENABLED', True) and not state.get("execution_trace") and not state.get("_guardrail_blocked"):
         guardrail_block = await _run_scope_guardrail(llm, user_id, project_id, session_id)

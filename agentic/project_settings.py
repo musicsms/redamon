@@ -14,6 +14,15 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 # =============================================================================
+# DANGEROUS TOOLS — require manual confirmation before execution
+# =============================================================================
+DANGEROUS_TOOLS = frozenset({
+    'execute_nmap', 'execute_naabu', 'execute_nuclei', 'execute_curl',
+    'msf_restart', 'kali_shell', 'metasploit_console', 'execute_code',
+    'execute_hydra',
+})
+
+# =============================================================================
 # DEFAULT SETTINGS - Used as fallback for standalone usage and missing API fields
 # =============================================================================
 
@@ -50,6 +59,7 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
     # Approval Gates
     'REQUIRE_APPROVAL_FOR_EXPLOITATION': True,
     'REQUIRE_APPROVAL_FOR_POST_EXPLOITATION': True,
+    'REQUIRE_TOOL_CONFIRMATION': True,
 
     # Neo4j
     'CYPHER_MAX_RETRIES': 3,
@@ -207,6 +217,7 @@ def fetch_agent_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['EXECUTION_TRACE_MEMORY_STEPS'] = project.get('agentExecutionTraceMemorySteps', DEFAULT_AGENT_SETTINGS['EXECUTION_TRACE_MEMORY_STEPS'])
     settings['REQUIRE_APPROVAL_FOR_EXPLOITATION'] = project.get('agentRequireApprovalForExploitation', DEFAULT_AGENT_SETTINGS['REQUIRE_APPROVAL_FOR_EXPLOITATION'])
     settings['REQUIRE_APPROVAL_FOR_POST_EXPLOITATION'] = project.get('agentRequireApprovalForPostExploitation', DEFAULT_AGENT_SETTINGS['REQUIRE_APPROVAL_FOR_POST_EXPLOITATION'])
+    settings['REQUIRE_TOOL_CONFIRMATION'] = project.get('agentRequireToolConfirmation', DEFAULT_AGENT_SETTINGS['REQUIRE_TOOL_CONFIRMATION'])
     settings['TOOL_OUTPUT_MAX_CHARS'] = project.get('agentToolOutputMaxChars', DEFAULT_AGENT_SETTINGS['TOOL_OUTPUT_MAX_CHARS'])
     settings['CYPHER_MAX_RETRIES'] = project.get('agentCypherMaxRetries', DEFAULT_AGENT_SETTINGS['CYPHER_MAX_RETRIES'])
     settings['LLM_PARSE_MAX_RETRIES'] = project.get('agentLlmParseMaxRetries', DEFAULT_AGENT_SETTINGS['LLM_PARSE_MAX_RETRIES'])

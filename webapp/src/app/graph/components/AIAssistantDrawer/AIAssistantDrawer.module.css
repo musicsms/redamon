@@ -2022,3 +2022,45 @@ td:hover .tableCellCopyButton {
   gap: 0.5rem;
 }
 
+/* Danger badge for disabled tool confirmation */
+.dangerBadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #ef4444;
+  animation: dangerPulse 2s ease-in-out infinite;
+  cursor: help;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  background: rgba(239, 68, 68, 0.1);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  align-self: center;
+}
+
+@keyframes dangerPulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Tool args preview in confirmation dialog */
+.toolArgsPreview {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+  max-height: 120px;
+  overflow-y: auto;
+}
+

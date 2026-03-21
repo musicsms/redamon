@@ -142,6 +142,16 @@ class PhaseHistoryEntry(BaseModel):
     exited_at: Optional[datetime] = None
 
 
+class ToolConfirmationRequest(BaseModel):
+    """Request for user confirmation before executing dangerous tool(s)."""
+    confirmation_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    mode: Literal["single", "plan"]  # single tool or plan wave
+    tools: List[dict]  # [{tool_name, tool_args, rationale}]
+    reasoning: str
+    phase: str
+    iteration: int
+
+
 # =============================================================================
 # USER Q&A MODELS
 # =============================================================================
@@ -469,6 +479,14 @@ class AgentState(TypedDict):
     user_question_answer: Optional[str]  # User's answer text
     qa_history: List[dict]  # List of QAHistoryEntry.model_dump() for context
 
+    # Tool confirmation control
+    awaiting_tool_confirmation: bool
+    tool_confirmation_pending: Optional[dict]  # ToolConfirmationRequest.model_dump() or None
+    tool_confirmation_response: Optional[str]  # "approve" | "modify" | "reject"
+    tool_confirmation_modification: Optional[dict]  # Modified tool args from user
+    _reject_tool: bool  # True when user rejected tool (routes to think)
+    _tool_confirmation_mode: Optional[str]  # "single" | "plan" — preserved for router after clearing pending
+
     # Internal fields for inter-node communication (not persisted long-term)
     _current_step: Optional[dict]  # Current ExecutionStep being processed
     _completed_step: Optional[dict]  # Previous step with analysis, for streaming emission
@@ -543,6 +561,13 @@ class InvokeResponse(BaseModel):
         description="Question request details if awaiting_question is True"
     )
 
+    # Tool confirmation flow
+    awaiting_tool_confirmation: bool = Field(default=False, description="True if waiting for tool confirmation")
+    tool_confirmation_request: Optional[dict] = Field(
+        default=None,
+        description="Tool confirmation request details if awaiting_tool_confirmation is True"
+    )
+
 
 class ApprovalRequest(BaseModel):
     """Request model for user approval endpoint."""
@@ -599,6 +624,13 @@ def create_initial_state(
         "pending_question": None,
         "user_question_answer": None,
         "qa_history": [],
+        # Tool confirmation fields
+        "awaiting_tool_confirmation": False,
+        "tool_confirmation_pending": None,
+        "tool_confirmation_response": None,
+        "tool_confirmation_modification": None,
+        "_reject_tool": False,
+        "_tool_confirmation_mode": None,
         # Internal fields
         "_current_step": None,
         "_completed_step": None,

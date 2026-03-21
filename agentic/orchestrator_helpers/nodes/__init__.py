@@ -11,6 +11,10 @@ from .approval_nodes import (
     await_question_node,
     process_answer_node,
 )
+from .tool_confirmation_nodes import (
+    await_tool_confirmation_node,
+    process_tool_confirmation_node,
+)
 
 __all__ = [
     "initialize_node",
@@ -22,4 +26,6 @@ __all__ = [
     "process_approval_node",
     "await_question_node",
     "process_answer_node",
+    "await_tool_confirmation_node",
+    "process_tool_confirmation_node",
 ]

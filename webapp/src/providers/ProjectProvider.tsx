@@ -15,6 +15,7 @@ export interface ProjectSummary {
   agentToolPhaseMap?: Record<string, string[]>
   stealthMode?: boolean
   agentDeepThinkEnabled?: boolean
+  agentRequireToolConfirmation?: boolean
   roeEnabled?: boolean
   createdAt: string
   updatedAt: string
@@ -74,6 +75,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
                 : project.agentToolPhaseMap,
               stealthMode: project.stealthMode,
               agentDeepThinkEnabled: project.agentDeepThinkEnabled,
+              agentRequireToolConfirmation: project.agentRequireToolConfirmation,
               roeEnabled: project.roeEnabled,
               createdAt: project.createdAt,
               updatedAt: project.updatedAt
