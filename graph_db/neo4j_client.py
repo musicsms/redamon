@@ -5425,6 +5425,553 @@ class Neo4jClient:
 
         print(f"[+][graph-db] External domains: {created} created, {len(external_domains) - created} updated")
 
+    def update_graph_from_censys(self, recon_data: dict, user_id: str, project_id: str) -> dict:
+        stats = {"ips_enriched": 0, "ports_merged": 0, "services_merged": 0, "relationships_created": 0, "errors": []}
+        try:
+            hosts = (recon_data.get("censys") or {}).get("hosts") or []
+            if not hosts:
+                stats["errors"].append("No censys hosts in recon_data")
+            else:
+                with self.driver.session() as session:
+                    for host in hosts:
+                        ip = host.get("ip")
+                        if not ip:
+                            continue
+                        try:
+                            asn = host.get("autonomous_system") or {}
+                            if not isinstance(asn, dict):
+                                asn = {}
+                            ip_props = {"censys_enriched": True}
+                            if asn.get("name"):
+                                ip_props["autonomous_system_name"] = asn.get("name")
+                            if asn.get("asn") is not None:
+                                ip_props["autonomous_system_number"] = asn.get("asn")
+                            os_v = host.get("os")
+                            if os_v:
+                                ip_props["os"] = os_v
+                            lu = host.get("last_updated")
+                            if lu:
+                                ip_props["censys_last_seen"] = str(lu)
+                            session.run(
+                                """
+                                MERGE (i:IP {address: $address, user_id: $user_id, project_id: $project_id})
+                                SET i += $props, i.updated_at = datetime()
+                                """,
+                                address=ip, user_id=user_id, project_id=project_id, props=ip_props,
+                            )
+                            stats["ips_enriched"] += 1
+                            for svc in host.get("services") or []:
+                                if not isinstance(svc, dict):
+                                    continue
+                                port_num = svc.get("port")
+                                if port_num is None:
+                                    continue
+                                protocol = (svc.get("transport_protocol") or "tcp").lower() or "tcp"
+                                session.run(
+                                    """
+                                    MERGE (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                                   user_id: $user_id, project_id: $project_id})
+                                    ON CREATE SET p.state = 'open', p.updated_at = datetime()
+                                    SET p.source = 'censys', p.updated_at = datetime()
+                                    MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
+                                    MERGE (i)-[:HAS_PORT]->(p)
+                                    """,
+                                    port=int(port_num), protocol=protocol, ip=ip,
+                                    user_id=user_id, project_id=project_id,
+                                )
+                                stats["ports_merged"] += 1
+                                stats["relationships_created"] += 1
+                                sname = (svc.get("service_name") or "").strip()
+                                if sname:
+                                    sw = svc.get("software") or []
+                                    ver = None
+                                    if sw and isinstance(sw[0], dict):
+                                        ver = sw[0].get("version")
+                                    svc_props = {k: v for k, v in {"source": "censys", "version": ver}.items() if v}
+                                    session.run(
+                                        """
+                                        MERGE (svc:Service {name: $name, port_number: $port, ip_address: $ip,
+                                                            user_id: $user_id, project_id: $project_id})
+                                        ON CREATE SET svc.updated_at = datetime()
+                                        SET svc += $props, svc.updated_at = datetime()
+                                        WITH svc
+                                        MATCH (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                                       user_id: $user_id, project_id: $project_id})
+                                        MERGE (p)-[:RUNS_SERVICE]->(svc)
+                                        """,
+                                        name=sname, port=int(port_num), protocol=protocol, ip=ip,
+                                        user_id=user_id, project_id=project_id, props=svc_props,
+                                    )
+                                    stats["services_merged"] += 1
+                                    stats["relationships_created"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"Censys host {ip}: {e}")
+        except Exception as e:
+            stats["errors"].append(f"update_graph_from_censys: {e}")
+        print(f"[graph-db] update_graph_from_censys complete: {stats}")
+        return stats
+
+    def update_graph_from_fofa(self, recon_data: dict, user_id: str, project_id: str) -> dict:
+        stats = {"ips_enriched": 0, "ports_merged": 0, "services_merged": 0, "subdomains_merged": 0, "relationships_created": 0, "errors": []}
+        try:
+            rows = (recon_data.get("fofa") or {}).get("results") or []
+            domain = recon_data.get("domain", "") or ""
+            if not rows:
+                stats["errors"].append("No fofa results in recon_data")
+            else:
+                with self.driver.session() as session:
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        ip = row.get("ip")
+                        if not ip:
+                            continue
+                        try:
+                            ip_props = {"fofa_enriched": True}
+                            cty = row.get("country")
+                            if cty:
+                                ip_props["country"] = cty
+                            session.run(
+                                """
+                                MERGE (i:IP {address: $address, user_id: $user_id, project_id: $project_id})
+                                SET i += $props, i.updated_at = datetime()
+                                """,
+                                address=ip, user_id=user_id, project_id=project_id, props=ip_props,
+                            )
+                            stats["ips_enriched"] += 1
+                            port_raw = row.get("port")
+                            try:
+                                pnum = int(port_raw) if port_raw is not None else None
+                            except (TypeError, ValueError):
+                                pnum = None
+                            if pnum is None:
+                                continue
+                            session.run(
+                                """
+                                MERGE (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                               user_id: $user_id, project_id: $project_id})
+                                ON CREATE SET p.state = 'open', p.updated_at = datetime()
+                                SET p.source = 'fofa', p.updated_at = datetime()
+                                MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
+                                MERGE (i)-[:HAS_PORT]->(p)
+                                """,
+                                port=pnum, protocol="tcp", ip=ip, user_id=user_id, project_id=project_id,
+                            )
+                            stats["ports_merged"] += 1
+                            stats["relationships_created"] += 1
+                            server = (row.get("server") or "").strip()
+                            if server:
+                                session.run(
+                                    """
+                                    MERGE (svc:Service {name: $name, port_number: $port, ip_address: $ip,
+                                                        user_id: $user_id, project_id: $project_id})
+                                    ON CREATE SET svc.updated_at = datetime()
+                                    SET svc.source = 'fofa', svc.updated_at = datetime()
+                                    WITH svc
+                                    MATCH (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                                   user_id: $user_id, project_id: $project_id})
+                                    MERGE (p)-[:RUNS_SERVICE]->(svc)
+                                    """,
+                                    name=server, port=pnum, protocol="tcp", ip=ip,
+                                    user_id=user_id, project_id=project_id,
+                                )
+                                stats["services_merged"] += 1
+                                stats["relationships_created"] += 1
+                            host = (row.get("host") or "").strip()
+                            if host and domain and host != ip and (
+                                host == domain or host.endswith("." + domain)
+                            ):
+                                session.run(
+                                    """
+                                    MERGE (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
+                                    ON CREATE SET s.status = 'unverified', s.discovered_at = datetime(), s.updated_at = datetime()
+                                    SET s.source = 'fofa', s.updated_at = datetime()
+                                    MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
+                                    MERGE (s)-[:RESOLVES_TO {record_type: 'A', timestamp: datetime()}]->(i)
+                                    """,
+                                    name=host, ip=ip, user_id=user_id, project_id=project_id,
+                                )
+                                stats["subdomains_merged"] += 1
+                                stats["relationships_created"] += 1
+                                session.run(
+                                    """
+                                    MATCH (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
+                                    MATCH (d:Domain {name: $domain, user_id: $user_id, project_id: $project_id})
+                                    MERGE (s)-[:BELONGS_TO]->(d)
+                                    """,
+                                    name=host, domain=domain, user_id=user_id, project_id=project_id,
+                                )
+                                stats["relationships_created"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"FOFA row {ip}: {e}")
+        except Exception as e:
+            stats["errors"].append(f"update_graph_from_fofa: {e}")
+        print(f"[graph-db] update_graph_from_fofa complete: {stats}")
+        return stats
+
+    def update_graph_from_otx(self, recon_data: dict, user_id: str, project_id: str) -> dict:
+        stats = {"ips_enriched": 0, "subdomains_merged": 0, "domains_updated": 0, "relationships_created": 0, "errors": []}
+        try:
+            otx = recon_data.get("otx") or {}
+            reports = otx.get("ip_reports") or []
+            domain = recon_data.get("domain", "") or ""
+            dr = otx.get("domain_report")
+            if not reports and not (dr and isinstance(dr, dict) and dr.get("domain")):
+                stats["errors"].append("No otx ip_reports or domain_report in recon_data")
+            else:
+                with self.driver.session() as session:
+                    for rep in reports:
+                        if not isinstance(rep, dict):
+                            continue
+                        ip = rep.get("ip")
+                        if not ip:
+                            continue
+                        try:
+                            session.run(
+                                """
+                                MERGE (i:IP {address: $address, user_id: $user_id, project_id: $project_id})
+                                SET i.otx_enriched = true,
+                                    i.otx_pulse_count = $pulse,
+                                    i.otx_reputation = $reputation,
+                                    i.updated_at = datetime()
+                                """,
+                                address=ip, user_id=user_id, project_id=project_id,
+                                pulse=rep.get("pulse_count"), reputation=rep.get("reputation"),
+                            )
+                            stats["ips_enriched"] += 1
+                            for hostname in rep.get("passive_dns_hostnames") or []:
+                                if not hostname or not domain:
+                                    continue
+                                if not (hostname == domain or hostname.endswith("." + domain)):
+                                    continue
+                                try:
+                                    session.run(
+                                        """
+                                        MERGE (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
+                                        ON CREATE SET s.discovered_at = datetime(), s.updated_at = datetime()
+                                        SET s.source = 'otx_passive_dns', s.status = 'unverified', s.updated_at = datetime()
+                                        MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
+                                        MERGE (s)-[:RESOLVES_TO {record_type: 'A', timestamp: datetime()}]->(i)
+                                        """,
+                                        name=hostname, ip=ip, user_id=user_id, project_id=project_id,
+                                    )
+                                    stats["subdomains_merged"] += 1
+                                    stats["relationships_created"] += 1
+                                    session.run(
+                                        """
+                                        MATCH (s:Subdomain {name: $name, user_id: $user_id, project_id: $project_id})
+                                        MATCH (d:Domain {name: $domain, user_id: $user_id, project_id: $project_id})
+                                        MERGE (s)-[:BELONGS_TO]->(d)
+                                        """,
+                                        name=hostname, domain=domain, user_id=user_id, project_id=project_id,
+                                    )
+                                    stats["relationships_created"] += 1
+                                except Exception as e2:
+                                    stats["errors"].append(f"OTX pdns {hostname}: {e2}")
+                        except Exception as e:
+                            stats["errors"].append(f"OTX IP {ip}: {e}")
+                    if dr and isinstance(dr, dict) and dr.get("domain"):
+                        try:
+                            session.run(
+                                """
+                                MATCH (d:Domain {name: $name, user_id: $user_id, project_id: $project_id})
+                                SET d.otx_pulse_count = $pulse, d.updated_at = datetime()
+                                """,
+                                name=dr["domain"], user_id=user_id, project_id=project_id,
+                                pulse=dr.get("pulse_count"),
+                            )
+                            stats["domains_updated"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"OTX domain_report: {e}")
+        except Exception as e:
+            stats["errors"].append(f"update_graph_from_otx: {e}")
+        print(f"[graph-db] update_graph_from_otx complete: {stats}")
+        return stats
+
+    def update_graph_from_netlas(self, recon_data: dict, user_id: str, project_id: str) -> dict:
+        stats = {"ips_enriched": 0, "ports_merged": 0, "services_merged": 0, "relationships_created": 0, "errors": []}
+        try:
+            rows = (recon_data.get("netlas") or {}).get("results") or []
+            if not rows:
+                stats["errors"].append("No netlas results in recon_data")
+            else:
+                with self.driver.session() as session:
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        ip = row.get("ip")
+                        if not ip:
+                            continue
+                        try:
+                            ip_props = {"netlas_enriched": True}
+                            isp = row.get("isp")
+                            if isp:
+                                ip_props["isp"] = isp
+                            session.run(
+                                """
+                                MERGE (i:IP {address: $address, user_id: $user_id, project_id: $project_id})
+                                SET i += $props, i.updated_at = datetime()
+                                """,
+                                address=ip, user_id=user_id, project_id=project_id, props=ip_props,
+                            )
+                            stats["ips_enriched"] += 1
+                            port_raw = row.get("port")
+                            try:
+                                pnum = int(port_raw) if port_raw is not None else 0
+                            except (TypeError, ValueError):
+                                pnum = 0
+                            if not pnum:
+                                continue
+                            proto = (row.get("protocol") or "tcp")
+                            if isinstance(proto, str):
+                                protocol = proto.lower() or "tcp"
+                            else:
+                                protocol = "tcp"
+                            session.run(
+                                """
+                                MERGE (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                               user_id: $user_id, project_id: $project_id})
+                                ON CREATE SET p.state = 'open', p.updated_at = datetime()
+                                SET p.source = 'netlas', p.updated_at = datetime()
+                                MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
+                                MERGE (i)-[:HAS_PORT]->(p)
+                                """,
+                                port=pnum, protocol=protocol, ip=ip, user_id=user_id, project_id=project_id,
+                            )
+                            stats["ports_merged"] += 1
+                            stats["relationships_created"] += 1
+                            prot_name = (row.get("protocol") or "").strip()
+                            if prot_name:
+                                session.run(
+                                    """
+                                    MERGE (svc:Service {name: $name, port_number: $port, ip_address: $ip,
+                                                        user_id: $user_id, project_id: $project_id})
+                                    ON CREATE SET svc.updated_at = datetime()
+                                    SET svc.source = 'netlas', svc.updated_at = datetime()
+                                    WITH svc
+                                    MATCH (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                                   user_id: $user_id, project_id: $project_id})
+                                    MERGE (p)-[:RUNS_SERVICE]->(svc)
+                                    """,
+                                    name=prot_name, port=pnum, protocol=protocol, ip=ip,
+                                    user_id=user_id, project_id=project_id,
+                                )
+                                stats["services_merged"] += 1
+                                stats["relationships_created"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"Netlas row {ip}: {e}")
+        except Exception as e:
+            stats["errors"].append(f"update_graph_from_netlas: {e}")
+        print(f"[graph-db] update_graph_from_netlas complete: {stats}")
+        return stats
+
+    def update_graph_from_virustotal(self, recon_data: dict, user_id: str, project_id: str) -> dict:
+        stats = {"domains_updated": 0, "ips_enriched": 0, "errors": []}
+        try:
+            vt = recon_data.get("virustotal") or {}
+            dr = vt.get("domain_report")
+            reports = vt.get("ip_reports") or []
+            if dr is None and not reports:
+                stats["errors"].append("No virustotal domain_report or ip_reports in recon_data")
+            else:
+                with self.driver.session() as session:
+                    if dr and isinstance(dr, dict) and dr.get("domain"):
+                        try:
+                            ast = dr.get("analysis_stats") or {}
+                            mal = ast.get("malicious") if isinstance(ast, dict) else None
+                            cats = dr.get("categories")
+                            if isinstance(cats, dict):
+                                cats_stored = json.dumps(cats)
+                            else:
+                                cats_stored = json.dumps(cats) if cats is not None else None
+                            session.run(
+                                """
+                                MATCH (d:Domain {name: $name, user_id: $user_id, project_id: $project_id})
+                                SET d.vt_enriched = true,
+                                    d.vt_reputation = $reputation,
+                                    d.vt_malicious_count = $malicious,
+                                    d.vt_categories = $categories,
+                                    d.updated_at = datetime()
+                                """,
+                                name=dr["domain"], user_id=user_id, project_id=project_id,
+                                reputation=dr.get("reputation"), malicious=mal, categories=cats_stored,
+                            )
+                            stats["domains_updated"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"VirusTotal domain_report: {e}")
+                    for rep in reports:
+                        if not isinstance(rep, dict):
+                            continue
+                        ip = rep.get("ip")
+                        if not ip:
+                            continue
+                        try:
+                            ast = rep.get("analysis_stats") or {}
+                            mal = ast.get("malicious") if isinstance(ast, dict) else None
+                            session.run(
+                                """
+                                MERGE (i:IP {address: $address, user_id: $user_id, project_id: $project_id})
+                                SET i.vt_enriched = true,
+                                    i.vt_reputation = $reputation,
+                                    i.vt_malicious_count = $malicious,
+                                    i.updated_at = datetime()
+                                """,
+                                address=ip, user_id=user_id, project_id=project_id,
+                                reputation=rep.get("reputation"), malicious=mal,
+                            )
+                            stats["ips_enriched"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"VirusTotal IP {ip}: {e}")
+        except Exception as e:
+            stats["errors"].append(f"update_graph_from_virustotal: {e}")
+        print(f"[graph-db] update_graph_from_virustotal complete: {stats}")
+        return stats
+
+    def update_graph_from_zoomeye(self, recon_data: dict, user_id: str, project_id: str) -> dict:
+        stats = {"ips_enriched": 0, "ports_merged": 0, "services_merged": 0, "relationships_created": 0, "errors": []}
+        try:
+            rows = (recon_data.get("zoomeye") or {}).get("results") or []
+            if not rows:
+                stats["errors"].append("No zoomeye results in recon_data")
+            else:
+                with self.driver.session() as session:
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        ip = row.get("ip")
+                        if not ip:
+                            continue
+                        try:
+                            session.run(
+                                """
+                                MERGE (i:IP {address: $address, user_id: $user_id, project_id: $project_id})
+                                SET i.zoomeye_enriched = true, i.updated_at = datetime()
+                                """,
+                                address=ip, user_id=user_id, project_id=project_id,
+                            )
+                            stats["ips_enriched"] += 1
+                            port_raw = row.get("port")
+                            try:
+                                pnum = int(port_raw) if port_raw is not None else 0
+                            except (TypeError, ValueError):
+                                pnum = 0
+                            if not pnum:
+                                continue
+                            session.run(
+                                """
+                                MERGE (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                               user_id: $user_id, project_id: $project_id})
+                                ON CREATE SET p.state = 'open', p.updated_at = datetime()
+                                SET p.source = 'zoomeye', p.updated_at = datetime()
+                                MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
+                                MERGE (i)-[:HAS_PORT]->(p)
+                                """,
+                                port=pnum, protocol="tcp", ip=ip, user_id=user_id, project_id=project_id,
+                            )
+                            stats["ports_merged"] += 1
+                            stats["relationships_created"] += 1
+                            app = (row.get("app") or "").strip()
+                            if app:
+                                banner = (row.get("banner") or "")[:500]
+                                session.run(
+                                    """
+                                    MERGE (svc:Service {name: $name, port_number: $port, ip_address: $ip,
+                                                        user_id: $user_id, project_id: $project_id})
+                                    ON CREATE SET svc.updated_at = datetime()
+                                    SET svc.source = 'zoomeye', svc.banner = $banner, svc.updated_at = datetime()
+                                    WITH svc
+                                    MATCH (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                                   user_id: $user_id, project_id: $project_id})
+                                    MERGE (p)-[:RUNS_SERVICE]->(svc)
+                                    """,
+                                    name=app, port=pnum, protocol="tcp", ip=ip, banner=banner,
+                                    user_id=user_id, project_id=project_id,
+                                )
+                                stats["services_merged"] += 1
+                                stats["relationships_created"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"ZoomEye row {ip}: {e}")
+        except Exception as e:
+            stats["errors"].append(f"update_graph_from_zoomeye: {e}")
+        print(f"[graph-db] update_graph_from_zoomeye complete: {stats}")
+        return stats
+
+    def update_graph_from_criminalip(self, recon_data: dict, user_id: str, project_id: str) -> dict:
+        stats = {"ips_enriched": 0, "ports_merged": 0, "relationships_created": 0, "errors": []}
+        try:
+            cip = recon_data.get("criminalip") or {}
+            reports = cip.get("ip_reports") or []
+            if not reports:
+                stats["errors"].append("No criminalip ip_reports in recon_data")
+            else:
+                with self.driver.session() as session:
+                    for rep in reports:
+                        if not isinstance(rep, dict):
+                            continue
+                        ip = rep.get("ip")
+                        if not ip:
+                            continue
+                        try:
+                            score = rep.get("score") or {}
+                            if not isinstance(score, dict):
+                                score = {}
+                            issues = rep.get("issues") or {}
+                            if not isinstance(issues, dict):
+                                issues = {}
+                            ip_props: dict = {"criminalip_enriched": True}
+                            ins, outs = score.get("inbound"), score.get("outbound")
+                            if ins is not None:
+                                ip_props["criminalip_score_inbound"] = ins
+                            if outs is not None:
+                                ip_props["criminalip_score_outbound"] = outs
+                            for fk, dk in (
+                                ("is_vpn", "criminalip_is_vpn"),
+                                ("is_proxy", "criminalip_is_proxy"),
+                                ("is_tor", "criminalip_is_tor"),
+                            ):
+                                if fk in issues:
+                                    ip_props[dk] = issues[fk]
+                            session.run(
+                                """
+                                MERGE (i:IP {address: $address, user_id: $user_id, project_id: $project_id})
+                                SET i += $props, i.updated_at = datetime()
+                                """,
+                                address=ip, user_id=user_id, project_id=project_id, props=ip_props,
+                            )
+                            stats["ips_enriched"] += 1
+                            for pentry in rep.get("ports") or []:
+                                if isinstance(pentry, dict):
+                                    v = pentry.get("open_port_no")
+                                    if v is None:
+                                        v = pentry.get("port")
+                                else:
+                                    v = pentry
+                                try:
+                                    pnum = int(v)
+                                except (TypeError, ValueError):
+                                    continue
+                                if pnum <= 0:
+                                    continue
+                                session.run(
+                                    """
+                                    MERGE (p:Port {number: $port, protocol: $protocol, ip_address: $ip,
+                                                   user_id: $user_id, project_id: $project_id})
+                                    ON CREATE SET p.state = 'open', p.updated_at = datetime()
+                                    SET p.source = 'criminalip', p.updated_at = datetime()
+                                    MERGE (i:IP {address: $ip, user_id: $user_id, project_id: $project_id})
+                                    MERGE (i)-[:HAS_PORT]->(p)
+                                    """,
+                                    port=pnum, protocol="tcp", ip=ip, user_id=user_id, project_id=project_id,
+                                )
+                                stats["ports_merged"] += 1
+                                stats["relationships_created"] += 1
+                        except Exception as e:
+                            stats["errors"].append(f"CriminalIP {ip}: {e}")
+        except Exception as e:
+            stats["errors"].append(f"update_graph_from_criminalip: {e}")
+        print(f"[graph-db] update_graph_from_criminalip complete: {stats}")
+        return stats
+
 
 if __name__ == "__main__":
     # Quick connection test

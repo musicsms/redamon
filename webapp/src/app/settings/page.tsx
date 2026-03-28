@@ -17,6 +17,14 @@ interface UserSettings {
   nvdApiKey: string
   vulnersApiKey: string
   urlscanApiKey: string
+  censysApiId: string
+  censysApiSecret: string
+  fofaApiKey: string
+  otxApiKey: string
+  netlasApiKey: string
+  virusTotalApiKey: string
+  zoomEyeApiKey: string
+  criminalIpApiKey: string
   ngrokAuthtoken: string
   chiselServerUrl: string
   chiselAuth: string
@@ -30,6 +38,14 @@ const EMPTY_SETTINGS: UserSettings = {
   nvdApiKey: '',
   vulnersApiKey: '',
   urlscanApiKey: '',
+  censysApiId: '',
+  censysApiSecret: '',
+  fofaApiKey: '',
+  otxApiKey: '',
+  netlasApiKey: '',
+  virusTotalApiKey: '',
+  zoomEyeApiKey: '',
+  criminalIpApiKey: '',
   ngrokAuthtoken: '',
   chiselServerUrl: '',
   chiselAuth: '',
@@ -48,6 +64,12 @@ const TOOL_NAME_MAP: Record<string, string> = {
   nvdApiKey: 'nvd',
   vulnersApiKey: 'vulners',
   urlscanApiKey: 'urlscan',
+  fofaApiKey: 'fofa',
+  otxApiKey: 'otx',
+  netlasApiKey: 'netlas',
+  virusTotalApiKey: 'virustotal',
+  zoomEyeApiKey: 'zoomeye',
+  criminalIpApiKey: 'criminalip',
 }
 
 function getProviderIcon(providerType: string): string {
@@ -249,6 +271,14 @@ export default function SettingsPage() {
           nvdApiKey: data.nvdApiKey || '',
           vulnersApiKey: data.vulnersApiKey || '',
           urlscanApiKey: data.urlscanApiKey || '',
+          censysApiId: data.censysApiId || '',
+          censysApiSecret: data.censysApiSecret || '',
+          fofaApiKey: data.fofaApiKey || '',
+          otxApiKey: data.otxApiKey || '',
+          netlasApiKey: data.netlasApiKey || '',
+          virusTotalApiKey: data.virusTotalApiKey || '',
+          zoomEyeApiKey: data.zoomEyeApiKey || '',
+          criminalIpApiKey: data.criminalIpApiKey || '',
           ngrokAuthtoken: data.ngrokAuthtoken || '',
           chiselServerUrl: data.chiselServerUrl || '',
           chiselAuth: data.chiselAuth || '',
@@ -320,6 +350,14 @@ export default function SettingsPage() {
           nvdApiKey: data.nvdApiKey || '',
           vulnersApiKey: data.vulnersApiKey || '',
           urlscanApiKey: data.urlscanApiKey || '',
+          censysApiId: data.censysApiId || '',
+          censysApiSecret: data.censysApiSecret || '',
+          fofaApiKey: data.fofaApiKey || '',
+          otxApiKey: data.otxApiKey || '',
+          netlasApiKey: data.netlasApiKey || '',
+          virusTotalApiKey: data.virusTotalApiKey || '',
+          zoomEyeApiKey: data.zoomEyeApiKey || '',
+          criminalIpApiKey: data.criminalIpApiKey || '',
           ngrokAuthtoken: data.ngrokAuthtoken || '',
           chiselServerUrl: data.chiselServerUrl || '',
           chiselAuth: data.chiselAuth || '',
@@ -575,6 +613,104 @@ export default function SettingsPage() {
               onChange={v => updateSetting('urlscanApiKey', v)}
               onConfigureRotation={() => openRotationModal('urlscanApiKey')}
               rotationInfo={rotationConfigs.urlscan || null}
+            />
+
+            {/* OSINT & Threat Intelligence */}
+            <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--border-default)', paddingTop: '16px', marginTop: '8px' }}>
+              <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                OSINT &amp; Threat Intelligence
+              </h4>
+            </div>
+            <SecretField
+              label="Censys API ID"
+              hint="Censys search engine — host/service discovery via banner and certificate data. Requires API ID + Secret pair"
+              signupUrl="https://accounts.censys.io/settings/personal-access-tokens"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.censysApiId}
+              visible={!!visibleFields.censysApiId}
+              onToggle={() => toggleFieldVisibility('censysApiId')}
+              onChange={v => updateSetting('censysApiId', v)}
+            />
+            <SecretField
+              label="Censys API Secret"
+              hint="Second half of Censys credentials — paired with API ID above"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.censysApiSecret}
+              visible={!!visibleFields.censysApiSecret}
+              onToggle={() => toggleFieldVisibility('censysApiSecret')}
+              onChange={v => updateSetting('censysApiSecret', v)}
+            />
+            <SecretField
+              label="FOFA API Key"
+              hint="FOFA cyberspace search — asset discovery by banner, certificate, domain. Key format: email:key"
+              signupUrl="https://en.fofa.info/"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.fofaApiKey}
+              visible={!!visibleFields.fofaApiKey}
+              onToggle={() => toggleFieldVisibility('fofaApiKey')}
+              onChange={v => updateSetting('fofaApiKey', v)}
+              onConfigureRotation={() => openRotationModal('fofaApiKey')}
+              rotationInfo={rotationConfigs.fofa || null}
+            />
+            <SecretField
+              label="AlienVault OTX Key"
+              hint="Open Threat Exchange — threat intelligence pulses, malware indicators, passive DNS, reputation scoring"
+              signupUrl="https://otx.alienvault.com/settings"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.otxApiKey}
+              visible={!!visibleFields.otxApiKey}
+              onToggle={() => toggleFieldVisibility('otxApiKey')}
+              onChange={v => updateSetting('otxApiKey', v)}
+              onConfigureRotation={() => openRotationModal('otxApiKey')}
+              rotationInfo={rotationConfigs.otx || null}
+            />
+            <SecretField
+              label="Netlas API Key"
+              hint="Netlas.io — internet-wide scan data with banners, certificates, and WHOIS info"
+              signupUrl="https://app.netlas.io/profile/"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.netlasApiKey}
+              visible={!!visibleFields.netlasApiKey}
+              onToggle={() => toggleFieldVisibility('netlasApiKey')}
+              onChange={v => updateSetting('netlasApiKey', v)}
+              onConfigureRotation={() => openRotationModal('netlasApiKey')}
+              rotationInfo={rotationConfigs.netlas || null}
+            />
+            <SecretField
+              label="VirusTotal API Key"
+              hint="Multi-engine reputation for IPs and domains. Free tier: 4 lookups/min, 500/day"
+              signupUrl="https://www.virustotal.com/gui/my-apikey"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.virusTotalApiKey}
+              visible={!!visibleFields.virusTotalApiKey}
+              onToggle={() => toggleFieldVisibility('virusTotalApiKey')}
+              onChange={v => updateSetting('virusTotalApiKey', v)}
+              onConfigureRotation={() => openRotationModal('virusTotalApiKey')}
+              rotationInfo={rotationConfigs.virustotal || null}
+            />
+            <SecretField
+              label="ZoomEye API Key"
+              hint="ZoomEye cyberspace search — host/device discovery with port, banner, and geo data"
+              signupUrl="https://www.zoomeye.ai/profile"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.zoomEyeApiKey}
+              visible={!!visibleFields.zoomEyeApiKey}
+              onToggle={() => toggleFieldVisibility('zoomEyeApiKey')}
+              onChange={v => updateSetting('zoomEyeApiKey', v)}
+              onConfigureRotation={() => openRotationModal('zoomEyeApiKey')}
+              rotationInfo={rotationConfigs.zoomeye || null}
+            />
+            <SecretField
+              label="Criminal IP API Key"
+              hint="AI-powered threat intelligence — IP/domain risk scoring, vulnerability detection, proxy/VPN/Tor identification"
+              signupUrl="https://search.criminalip.io/mypage/information"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.criminalIpApiKey}
+              visible={!!visibleFields.criminalIpApiKey}
+              onToggle={() => toggleFieldVisibility('criminalIpApiKey')}
+              onChange={v => updateSetting('criminalIpApiKey', v)}
+              onConfigureRotation={() => openRotationModal('criminalIpApiKey')}
+              rotationInfo={rotationConfigs.criminalip || null}
             />
           </div>
         )}

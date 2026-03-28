@@ -900,6 +900,8 @@ Each node has `user_id` and `project_id` properties for tenant isolation (handle
 - name (string): "example.com"
 - registrar, creation_date, expiration_date (WHOIS data)
 - gvm_critical, gvm_high, gvm_medium, gvm_low (GVM vulnerability counts)
+- vt_enriched (boolean), vt_reputation (int), vt_malicious_count (int), vt_categories (string): VirusTotal domain reputation
+- otx_pulse_count (int): AlienVault OTX threat pulse count
 
 **Subdomain** - Discovered subdomains
 - name (string): "api.example.com", "www.example.com"
@@ -908,22 +910,30 @@ Each node has `user_id` and `project_id` properties for tenant isolation (handle
 - status_codes (list[int]): all unique HTTP status codes seen e.g. [200, 301, 404]
 - http_live_url_count (int): count of URLs with status < 500
 - http_probed_at (datetime): when last HTTP-probed
-- source (string): discovery source ("crt.sh", "hackertarget", "knockpy", "shodan_rdns", "shodan_dns", "urlscan")
+- source (string): discovery source ("crt.sh", "hackertarget", "knockpy", "shodan_rdns", "shodan_dns", "urlscan", "fofa", "otx_passive_dns")
 
 **IP** - Resolved IP addresses
 - address (string): "192.168.1.1"
 - is_ipv6 (boolean)
 - asn, isp, country (IP enrichment data)
+- shodan_enriched, censys_enriched, fofa_enriched, netlas_enriched, zoomeye_enriched (boolean): which OSINT tools enriched this IP
+- otx_enriched (boolean), otx_pulse_count (int), otx_reputation: AlienVault OTX threat intelligence
+- vt_enriched (boolean), vt_reputation (int), vt_malicious_count (int): VirusTotal multi-engine reputation
+- criminalip_enriched (boolean), criminalip_score_inbound, criminalip_score_outbound: Criminal IP risk scores
+- criminalip_is_vpn, criminalip_is_proxy, criminalip_is_tor (boolean): Criminal IP flags
+- autonomous_system_name, autonomous_system_number: from Censys
 
 **Port** - Open ports on IPs
 - number (integer): 80, 443, 22
 - protocol (string): "tcp", "udp"
 - state (string): "open", "closed", "filtered"
+- source (string): which tool discovered it ("naabu", "masscan", "shodan", "censys", "fofa", "netlas", "zoomeye", "criminalip")
 
 **Service** - Services running on ports
 - name (string): "http", "ssh", "mysql"
 - version (string): service version
 - banner (string): raw banner
+- source (string): which tool detected it
 
 ### Web Application Nodes (Hierarchy: BaseURL -> Endpoint -> Parameter)
 
