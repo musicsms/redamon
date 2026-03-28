@@ -103,7 +103,7 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 # Install API security testing tools (Python-based)
 # jwt_tool - JWT exploitation toolkit (alg:none, key confusion, cracking)
 # Source: https://github.com/ticarpi/jwt_tool (GPL-3.0)
-RUN pip install --no-cache-dir pycryptodomex termcolor \
+RUN pip install --no-cache-dir pycryptodomex termcolor ratelimit \
     && git clone --depth 1 https://github.com/ticarpi/jwt_tool.git /opt/jwt_tool \
     && chmod +x /opt/jwt_tool/jwt_tool.py \
     && ln -s /opt/jwt_tool/jwt_tool.py /usr/local/bin/jwt_tool
@@ -117,10 +117,15 @@ RUN git clone --depth 1 https://github.com/dolevf/graphql-cop.git /opt/graphql-c
 
 # GraphQLmap - GraphQL exploitation engine
 # Source: https://github.com/swisskyrepo/GraphQLmap (MIT)
+# Note: Install via setup.py to get the 'graphqlmap' command. Skip readline
+# from requirements.txt as it fails on Python 3.13 (Linux Python has readline built-in)
 RUN git clone --depth 1 https://github.com/swisskyrepo/GraphQLmap.git /opt/graphqlmap \
-    && pip install --no-cache-dir -r /opt/graphqlmap/requirements.txt \
-    && chmod +x /opt/graphqlmap/graphqlmap.py \
-    && ln -s /opt/graphqlmap/graphqlmap.py /usr/local/bin/graphqlmap
+    && cd /opt/graphqlmap \
+    && pip install --no-cache-dir requests \
+    && pip install --no-cache-dir -e .
+
+# Remove Python httpx if installed as dependency (conflicts with ProjectDiscovery's Go httpx)
+RUN pip uninstall -y httpx 2>/dev/null || true
 
 # Create directories
 RUN mkdir -p /opt/mcp_servers /opt/output
