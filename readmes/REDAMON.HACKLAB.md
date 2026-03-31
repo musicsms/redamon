@@ -512,6 +512,44 @@ and exploit it to gain a shell.
 
 ---
 
+## BROWSER-BASED ATTACKS (BRW)
+
+> These prompts require the Playwright headless browser tool (`execute_playwright`).
+> The agent uses a real Chromium browser to render JavaScript, interact with forms,
+> read DOM content, and test client-side vulnerabilities that curl cannot reach.
+
+### #BRW-V8NML -- Stored XSS via Notes to Session Hijacking
+```
+Target the Express web application on port 80. Use Playwright to log in
+as a regular user and create notes containing XSS payloads. Then log in
+as a different user and navigate to shared or public notes. Use Playwright
+to verify if the stored payload executes in the victim's browser context.
+Extract cookies, localStorage, and session tokens from the rendered page.
+Demonstrate the full stored XSS to session hijacking chain.
+```
+
+### #BRW-PJRL6 -- Authenticated Multi-Step Exploitation via Browser
+```
+Target the Express web application on port 80. Use Playwright to perform
+the full attack through the browser like a real user: log in via the
+login form, navigate the dashboard, discover hidden features by reading
+the rendered HTML and JavaScript, find file upload or import pages,
+and exploit them. The agent must NOT use curl or direct API calls --
+everything goes through the browser. Report what the browser-only
+attack surface looks like compared to API-only testing.
+```
+
+### #BRW-Y9AZK -- JavaScript Source Analysis for Hidden Endpoints and Secrets
+```
+Target the Express web application on port 80. Use Playwright to render
+the application and extract all JavaScript files, inline scripts, and
+dynamically loaded modules. Parse the JS source for hardcoded API keys,
+tokens, hidden API endpoints, debug flags, and commented-out features.
+Use any discovered hidden endpoints or credentials to escalate access.
+```
+
+---
+
 ## FULL ATTACK CHAINS (CHN)
 
 ### #CHN-9UZFK -- Info Disclosure to JWT Forge to SQLi to Command Injection
@@ -591,6 +629,7 @@ Present the plan, then execute it end-to-end and report deviations.
 | Prototype Pollution | PPL-IMVIH, PPL-CWI64 | :80 |
 | Info Disclosure & Recon | INF-CIYHE, INF-7UR23, INF-GDPPQ | :80, :4000 |
 | CORS & Client-Side | CLS-0Y9DO, CLS-M5IGQ, CLS-PKI7P | :80, :4000, :8080 |
+| Browser-Based (Playwright) | BRW-V8NML, BRW-PJRL6, BRW-Y9AZK | :80 |
 | CVE Exploitation | CVE-5TB94, CVE-874FR, CVE-HOCN9, CVE-J2QP8 | :21, :8080, :8888 |
 | Full Attack Chains | CHN-9UZFK, CHN-8UT0C, CHN-VS4F8, CHN-CGVYI | ALL |
 | Autonomous Kill Chain | AUT-E6IVW | ALL |
