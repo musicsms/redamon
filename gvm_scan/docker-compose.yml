@@ -149,6 +149,8 @@ services:
         "/var/lib/notus/advisories",
         "-m",
         "666",
+        "--mqtt-broker-address",
+        "",
       ]
     volumes:
       - gpg_data:/etc/openvas/gnupg
