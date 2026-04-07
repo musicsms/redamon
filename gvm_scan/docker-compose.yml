@@ -17,7 +17,7 @@ services:
   # DATA CONTAINERS (Init only - exit after populating volumes)
   # These containers download and extract vulnerability feed data
   # ===========================================================================
-  
+
   vulnerability-tests:
     image: registry.community.greenbone.net/community/vulnerability-tests
     container_name: redamon-gvm-vt
@@ -139,19 +139,7 @@ services:
     security_opt:
       - seccomp=unconfined
       - apparmor=unconfined
-    command:
-      [
-        "ospd-openvas",
-        "-f",
-        "--config",
-        "/etc/gvm/ospd-openvas.conf",
-        "--notus-feed-dir",
-        "/var/lib/notus/advisories",
-        "-m",
-        "666",
-        "--mqtt-broker-address",
-        "",
-      ]
+    command: [ "ospd-openvas", "-f", "--config", "/etc/gvm/ospd-openvas.conf", "--notus-feed-dir", "/var/lib/notus/advisories", "-m", "666" ]
     volumes:
       - gpg_data:/etc/openvas/gnupg
       - vt_data:/var/lib/openvas/plugins
@@ -186,7 +174,7 @@ services:
       - gvmd
       - ospd-openvas
     profiles:
-      - scanner  # Only start when explicitly requested
+      - scanner # Only start when explicitly requested
 
 volumes:
   vt_data:
