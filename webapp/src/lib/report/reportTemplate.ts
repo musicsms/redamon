@@ -114,9 +114,9 @@ function computePostureScores(data: ReportData): { metric: string; value: number
   // Vuln Density
   const totalVulns = vulnerabilities.severityDistribution.reduce((s, d) => s + d.count, 0)
   const totalCves = data.metrics.totalCves
-  const secretsCount = cveIntelligence.githubSecrets.secrets + cveIntelligence.githubSecrets.sensitiveFiles
+  const secretsCount = cveIntelligence.githubSecrets.secrets + cveIntelligence.githubSecrets.sensitiveFiles + data.secrets.total + data.trufflehog.totalFindings
   const chainFindingsCount = attackChains.totalChainFindings
-  const vulnDensityRaw = totalVulns + totalCves + secretsCount + chainFindingsCount
+  const vulnDensityRaw = totalVulns + totalCves + secretsCount + chainFindingsCount + data.jsRecon.totalFindings
 
   // Exploitability
   const gvmExploits = cveIntelligence.exploits.length
@@ -438,6 +438,10 @@ ${renderVulnerabilityDetails(data)}
 ${renderAttackSurface(data, n.attackSurfaceNarrative)}
 ${renderCveIntelligence(data)}
 ${renderGithubSecrets(data)}
+${renderTrufflehog(data)}
+${renderSecrets(data)}
+${renderJsRecon(data)}
+${renderOtx(data)}
 ${renderAttackChains(data)}
 ${renderRecommendations(data, n.recommendationsNarrative)}
 ${renderAppendix(data)}
@@ -474,25 +478,38 @@ function renderCover(name: string, domain: string, date: string, client: string,
 }
 
 function renderTOC(data: ReportData): string {
-  const sections = [
-    { id: 'executive-summary', title: '1. Executive Summary' },
-    { id: 'scope', title: '2. Scope & Methodology' },
-    { id: 'risk-summary', title: '3. Risk Summary' },
-    { id: 'findings', title: '4. Findings' },
-    { id: 'vulnerability-details', title: '5. Other Vulnerability Details' },
-    { id: 'attack-surface', title: '6. Attack Surface' },
-    { id: 'cve-intelligence', title: '7. CVE Intelligence' },
+  const dynamicSections: { id: string; label: string }[] = [
+    { id: 'executive-summary', label: 'Executive Summary' },
+    { id: 'scope', label: 'Scope & Methodology' },
+    { id: 'risk-summary', label: 'Risk Summary' },
+    { id: 'findings', label: 'Findings' },
+    { id: 'vulnerability-details', label: 'Other Vulnerability Details' },
+    { id: 'attack-surface', label: 'Attack Surface' },
+    { id: 'cve-intelligence', label: 'CVE Intelligence' },
   ]
   if (data.cveIntelligence.githubSecrets.secrets > 0 || data.cveIntelligence.githubSecrets.sensitiveFiles > 0) {
-    sections.push({ id: 'github-secrets', title: '8. GitHub Secrets' })
+    dynamicSections.push({ id: 'github-secrets', label: 'GitHub Secrets' })
+  }
+  if (data.trufflehog.totalFindings > 0) {
+    dynamicSections.push({ id: 'trufflehog', label: 'TruffleHog Findings' })
+  }
+  if (data.secrets.total > 0) {
+    dynamicSections.push({ id: 'secrets', label: 'Secret Detection' })
+  }
+  if (data.jsRecon.totalFindings > 0) {
+    dynamicSections.push({ id: 'js-recon', label: 'JavaScript Reconnaissance' })
+  }
+  if (data.otx.totalPulses > 0 || data.otx.totalMalware > 0) {
+    dynamicSections.push({ id: 'otx', label: 'OTX Threat Intelligence' })
   }
   if (data.attackChains.chains.length > 0) {
-    sections.push({ id: 'attack-chains', title: '9. Attack Chains' })
+    dynamicSections.push({ id: 'attack-chains', label: 'Attack Chains' })
   }
-  sections.push(
-    { id: 'recommendations', title: '10. Recommendations' },
-    { id: 'appendix', title: '11. Appendix' },
+  dynamicSections.push(
+    { id: 'recommendations', label: 'Recommendations' },
+    { id: 'appendix', label: 'Appendix' },
   )
+  const sections = dynamicSections.map((s, i) => ({ id: s.id, title: `${i + 1}. ${s.label}` }))
 
   return `
 <div class="page-break"></div>
@@ -1028,7 +1045,7 @@ function renderGithubSecrets(data: ReportData): string {
   return `
 <div class="page-break"></div>
 <div class="section" id="github-secrets">
-  <h2 class="section-title">8. GitHub Secrets</h2>
+  <h2 class="section-title">GitHub Secrets</h2>
   <div class="alert alert-critical">
     Exposed secrets and sensitive files were discovered in GitHub repositories associated with the target.
   </div>
@@ -1039,6 +1056,193 @@ function renderGithubSecrets(data: ReportData): string {
       <tr><td>Sensitive Files</td><td style="color:#ea580c;font-weight:600">${gh.sensitiveFiles}</td></tr>
     </tbody>
   </table>
+</div>`
+}
+
+function renderTrufflehog(data: ReportData): string {
+  const th = data.trufflehog
+  if (th.totalFindings === 0) return ''
+
+  const findingRows = th.findings.map(f => `
+    <tr${f.verified ? ' style="background:#fef2f2"' : ''}>
+      <td>${esc(f.detectorName)}</td>
+      <td>${f.verified ? '<span style="color:#dc2626;font-weight:600">VERIFIED</span>' : '<span style="color:#d97706">Unverified</span>'}</td>
+      <td style="font-family:monospace;font-size:11px">${esc(f.redacted || '')}</td>
+      <td>${esc(f.repository || '')}</td>
+      <td>${esc(f.file || '')}</td>
+    </tr>`).join('')
+
+  return `
+<div class="page-break"></div>
+<div class="section" id="trufflehog">
+  <h2 class="section-title">TruffleHog Findings</h2>
+  ${th.verifiedFindings > 0 ? `<div class="alert alert-critical">
+    ${th.verifiedFindings} verified credential(s) detected in git history. These credentials have been confirmed as active and represent immediate risk.
+  </div>` : ''}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <div class="metric-card-sm" style="border-left:3px solid #6366f1"><div class="metric-value-sm">${th.totalFindings}</div><div class="metric-label-sm">Total Findings</div></div>
+    <div class="metric-card-sm" style="border-left:3px solid #dc2626"><div class="metric-value-sm">${th.verifiedFindings}</div><div class="metric-label-sm">Verified</div></div>
+    <div class="metric-card-sm"><div class="metric-value-sm">${th.repositories}</div><div class="metric-label-sm">Repositories</div></div>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>Detector</th><th>Status</th><th>Redacted</th><th>Repository</th><th>File</th></tr></thead>
+    <tbody>${findingRows}</tbody>
+  </table>
+</div>`
+}
+
+function renderSecrets(data: ReportData): string {
+  const sec = data.secrets
+  if (sec.total === 0) return ''
+
+  const sevRows = sec.bySeverity.map(s => `
+    <tr><td>${sevBadge(s.severity)}</td><td>${s.count}</td></tr>`).join('')
+
+  const typeRows = sec.byType.map(t => `
+    <tr><td>${esc(t.secretType)}</td><td>${t.count}</td></tr>`).join('')
+
+  const findingRows = sec.findings.map(f => `
+    <tr>
+      <td>${esc(f.secretType)}</td>
+      <td>${sevBadge(f.severity)}</td>
+      <td>${esc(f.source)}</td>
+      <td style="font-family:monospace;font-size:11px">${esc(f.sample || '')}</td>
+      <td>${f.validationStatus ? esc(f.validationStatus) : ''}</td>
+    </tr>`).join('')
+
+  return `
+<div class="page-break"></div>
+<div class="section" id="secrets">
+  <h2 class="section-title">Secret Detection</h2>
+  <div class="alert alert-critical">
+    ${sec.total} secret(s) detected across web resources and JavaScript files.
+  </div>
+  <div class="two-col">
+    <div>
+      <h3>By Severity</h3>
+      <table class="data-table">
+        <thead><tr><th>Severity</th><th>Count</th></tr></thead>
+        <tbody>${sevRows}</tbody>
+      </table>
+    </div>
+    <div>
+      <h3>By Type (Top 20)</h3>
+      <table class="data-table">
+        <thead><tr><th>Secret Type</th><th>Count</th></tr></thead>
+        <tbody>${typeRows}</tbody>
+      </table>
+    </div>
+  </div>
+  <h3>Findings Detail</h3>
+  <table class="data-table">
+    <thead><tr><th>Type</th><th>Severity</th><th>Source</th><th>Sample</th><th>Validation</th></tr></thead>
+    <tbody>${findingRows}</tbody>
+  </table>
+  ${sec.findings.length >= 50 ? '<p class="muted">Showing first 50 findings.</p>' : ''}
+</div>`
+}
+
+function renderJsRecon(data: ReportData): string {
+  const js = data.jsRecon
+  if (js.totalFindings === 0) return ''
+
+  const sevRows = js.bySeverity.map(s => `
+    <tr><td>${sevBadge(s.severity)}</td><td>${s.count}</td></tr>`).join('')
+
+  const typeRows = js.byType.map(t => `
+    <tr><td>${esc(t.findingType.replace(/_/g, ' '))}</td><td>${t.count}</td></tr>`).join('')
+
+  const findingRows = js.findings.map(f => `
+    <tr>
+      <td>${esc(f.title)}</td>
+      <td>${sevBadge(f.severity)}</td>
+      <td>${esc(f.findingType.replace(/_/g, ' '))}</td>
+      <td>${f.confidence ? esc(f.confidence) : ''}</td>
+      <td style="font-size:11px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.sourceUrl || '')}</td>
+    </tr>`).join('')
+
+  return `
+<div class="page-break"></div>
+<div class="section" id="js-recon">
+  <h2 class="section-title">JavaScript Reconnaissance</h2>
+  <p style="margin-bottom:12px">Deep analysis of JavaScript files revealed ${js.totalFindings} finding(s) across dependency confusion risks, source map exposure, DOM sinks, developer comments, and framework detection.</p>
+  <div class="two-col">
+    <div>
+      <h3>By Severity</h3>
+      <table class="data-table">
+        <thead><tr><th>Severity</th><th>Count</th></tr></thead>
+        <tbody>${sevRows}</tbody>
+      </table>
+    </div>
+    <div>
+      <h3>By Finding Type</h3>
+      <table class="data-table">
+        <thead><tr><th>Type</th><th>Count</th></tr></thead>
+        <tbody>${typeRows}</tbody>
+      </table>
+    </div>
+  </div>
+  <h3>Findings Detail</h3>
+  <table class="data-table">
+    <thead><tr><th>Title</th><th>Severity</th><th>Type</th><th>Confidence</th><th>Source URL</th></tr></thead>
+    <tbody>${findingRows}</tbody>
+  </table>
+  ${js.findings.length >= 50 ? '<p class="muted">Showing first 50 findings.</p>' : ''}
+</div>`
+}
+
+function renderOtx(data: ReportData): string {
+  const otx = data.otx
+  if (otx.totalPulses === 0 && otx.totalMalware === 0) return ''
+
+  const pulseRows = otx.pulses.map(p => `
+    <tr>
+      <td>${esc(p.name)}</td>
+      <td>${p.adversary ? esc(p.adversary) : ''}</td>
+      <td>${p.malwareFamilies.length > 0 ? p.malwareFamilies.map(m => esc(m)).join(', ') : ''}</td>
+      <td>${p.attackIds.length > 0 ? p.attackIds.map(a => esc(a)).join(', ') : ''}</td>
+      <td>${p.tlp ? esc(p.tlp.toUpperCase()) : ''}</td>
+      <td>${esc(p.ipAddress || '')}</td>
+    </tr>`).join('')
+
+  const malwareRows = otx.malware.map(m => `
+    <tr>
+      <td style="font-family:monospace;font-size:11px">${esc(m.hash)}</td>
+      <td>${esc(m.hashType || '')}</td>
+      <td>${esc(m.fileType || '')}</td>
+      <td>${esc(m.source || '')}</td>
+      <td>${esc(m.ipAddress || '')}</td>
+    </tr>`).join('')
+
+  return `
+<div class="page-break"></div>
+<div class="section" id="otx">
+  <h2 class="section-title">OTX Threat Intelligence</h2>
+  <p style="margin-bottom:12px">AlienVault OTX threat intelligence enrichment identified associations between discovered infrastructure and known threat activity.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+    <div class="metric-card-sm" style="border-left:3px solid #6366f1"><div class="metric-value-sm">${otx.totalPulses}</div><div class="metric-label-sm">Threat Pulses</div></div>
+    <div class="metric-card-sm" style="border-left:3px solid #dc2626"><div class="metric-value-sm">${otx.totalMalware}</div><div class="metric-label-sm">Malware Samples</div></div>
+    <div class="metric-card-sm"><div class="metric-value-sm">${otx.enrichedIps}</div><div class="metric-label-sm">Enriched IPs</div></div>
+    ${otx.adversaries.length > 0 ? `<div class="metric-card-sm" style="border-left:3px solid #ea580c"><div class="metric-value-sm">${otx.adversaries.length}</div><div class="metric-label-sm">Threat Actors</div></div>` : ''}
+  </div>
+
+  ${otx.adversaries.length > 0 ? `
+  <h3>Known Threat Actors</h3>
+  <p>${otx.adversaries.map(a => `<span style="display:inline-block;padding:2px 10px;margin:2px 4px;border-radius:4px;background:#fef2f2;color:#991b1b;font-weight:600;font-size:12px">${esc(a)}</span>`).join('')}</p>` : ''}
+
+  ${pulseRows ? `
+  <h3>Threat Pulses (${otx.totalPulses})</h3>
+  <table class="data-table">
+    <thead><tr><th>Pulse Name</th><th>Adversary</th><th>Malware</th><th>MITRE ATT&amp;CK</th><th>TLP</th><th>IP</th></tr></thead>
+    <tbody>${pulseRows}</tbody>
+  </table>` : ''}
+
+  ${malwareRows ? `
+  <h3>Associated Malware (${otx.totalMalware})</h3>
+  <table class="data-table">
+    <thead><tr><th>Hash</th><th>Type</th><th>File Type</th><th>Source</th><th>IP</th></tr></thead>
+    <tbody>${malwareRows}</tbody>
+  </table>` : ''}
 </div>`
 }
 
@@ -1075,7 +1279,7 @@ function renderAttackChains(data: ReportData): string {
   return `
 <div class="page-break"></div>
 <div class="section" id="attack-chains">
-  <h2 class="section-title">9. Attack Chains</h2>
+  <h2 class="section-title">Attack Chains</h2>
 
   <h3>Chain Summary (${chains.length})</h3>
   <table class="data-table">
@@ -1106,7 +1310,7 @@ function renderRecommendations(data: ReportData, narrative?: string): string {
   return `
 <div class="page-break"></div>
 <div class="section" id="recommendations">
-  <h2 class="section-title">10. Recommendations</h2>
+  <h2 class="section-title">Recommendations</h2>
   ${narrative ? `<div class="narrative">${esc(narrative)}</div>` : ''}
   ${openItems.length > 0 ? `
   <h3>Priority Remediation Items (${openItems.length} open)</h3>
@@ -1137,7 +1341,7 @@ function renderAppendix(data: ReportData): string {
   return `
 <div class="page-break"></div>
 <div class="section" id="appendix">
-  <h2 class="section-title">11. Appendix</h2>
+  <h2 class="section-title">Appendix</h2>
 
   <h3>A. Graph Node Distribution</h3>
   <table class="data-table">
@@ -1152,7 +1356,9 @@ function renderAppendix(data: ReportData): string {
       <tr><td>Reconnaissance</td><td>Subfinder, HTTPX, Katana, Naabu, GAU</td></tr>
       <tr><td>Vulnerability Scanning</td><td>Nuclei, GreenBone (GVM)</td></tr>
       <tr><td>Exploitation</td><td>Metasploit Framework</td></tr>
-      <tr><td>Secret Detection</td><td>GitHub Hunt (TruffleHog-based)</td></tr>
+      <tr><td>Secret Detection</td><td>GitHub Hunt, TruffleHog, jsluice, JS Recon</td></tr>
+      <tr><td>JS Analysis</td><td>JS Recon (dependency confusion, source maps, DOM sinks)</td></tr>
+      <tr><td>Threat Intelligence</td><td>AlienVault OTX</td></tr>
       <tr><td>Graph Database</td><td>Neo4j</td></tr>
     </tbody>
   </table>

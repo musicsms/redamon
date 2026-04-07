@@ -23,6 +23,8 @@ services:
       - ./gvm_scan/output:/data/gvm-output:ro
       - ./github_secret_hunt/output:/data/github-hunt-output:ro
       - ./VERSION:/app/VERSION:ro
+      - js_recon_uploads:/data/js-recon-uploads
+      - js_recon_custom:/data/js-recon-custom
 
 volumes:
   webapp_node_modules:

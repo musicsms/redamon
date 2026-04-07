@@ -16,7 +16,8 @@ TOOL_REGISTRY = {
             '   - **Nodes:** Domains, Subdomains, IPs, Ports, Services, BaseURLs, DNSRecords, '
             'Endpoints, Parameters, Certificates, Headers, Technologies, Vulnerabilities, '
             'CVEs, MitreData (CWE), CAPEC, Traceroute hops, Exploits, ExploitGvm, '
-            'GithubHunt, Repositories, Paths, Secrets, SensitiveFiles\n'
+            'GithubHunt, Repositories, Paths, Secrets, SensitiveFiles, '
+            'JsReconFinding, TrufflehogScan, TrufflehogRepository, TrufflehogFinding\n'
             '   - Skip if you already know which specific tool to use'
         ),
     },
@@ -107,7 +108,11 @@ TOOL_REGISTRY = {
             '   - Full Kali toolset. Timeout: 120s.\n'
             '   - **CLI tools:** netcat, socat, rlwrap, msfvenom, searchsploit, sqlmap, '
             'john, smbclient, sshpass, jq, git, wget, gcc/g++/make, perl, hping3, slowhttptest, interactsh-client, '
-            'ffuf, httpx, jwt_tool, graphql-cop, graphqlmap, dalfox\n'
+            'ffuf, httpx, jwt_tool, graphql-cop, graphqlmap, dalfox, masscan\n'
+            '   - **Wordlists (SecLists):** pre-installed at `/usr/share/seclists/Discovery/Web-Content/`:\n'
+            '     - `common.txt` (4750 entries) — standard web content discovery\n'
+            '     - `big.txt` (20481 entries) — comprehensive directory list\n'
+            '     - `raft-medium-directories.txt` (29999 entries) — raft-based directory enumeration\n'
             '   - **Python libs** (for one-liners via `python3 -c`): '
             'requests, beautifulsoup4, pycryptodome, PyJWT, paramiko, impacket, pwntools\n'
             '   - For multi-line scripts use **execute_code** instead (avoids shell escaping)\n'
@@ -165,6 +170,19 @@ TOOL_REGISTRY = {
             '   - **Chain commands with `;`** (semicolons). Do NOT use `&&` or `||`\n'
             '   - **Shell limitations:** no variable assignment `$()`, no heredocs, no subshell expansion. '
             'For complex scripts: write to file via `echo`, then run with `python3`'
+        ),
+    },
+    "execute_wpscan": {
+        "purpose": "WordPress vulnerability scanning",
+        "when_to_use": "Scan WordPress sites for vulnerable plugins, themes, users, and misconfigurations",
+        "args_format": '"args": "wpscan arguments without \'wpscan\' prefix"',
+        "description": (
+            '**execute_wpscan** (WordPress security scanner)\n'
+            '   - Detects vulnerable plugins, themes, and WordPress core versions\n'
+            '   - Enumerates users, config backups, database exports\n'
+            '   - Requires WPScan API token for vulnerability data (free: 25 requests/day)\n'
+            '   - Key flags: --url TARGET, --enumerate p,t,u,cb, --format json, --api-token TOKEN\n'
+            '   - Example: "--url http://example.com --enumerate p,t --format json --no-banner"'
         ),
     },
     "msf_restart": {

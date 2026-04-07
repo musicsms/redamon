@@ -61,6 +61,11 @@ RUN apt-get install -y --fix-missing \
     libpcap-dev \
     # Masscan port scanner (for AI agent network reconnaissance)
     masscan \
+    # WPScan WordPress vulnerability scanner
+    # NOTE: WPScan is licensed under the WPScan Public Source License (NOT MIT).
+    # Free for pentesting assessments and personal use. Commercial use may require
+    # a separate license from https://wpscan.com. See: github.com/wpscanteam/wpscan/blob/master/LICENSE
+    wpscan \
     # Clean up
     && rm -rf /var/lib/apt/lists/*
 
@@ -131,6 +136,15 @@ RUN pip install --no-cache-dir playwright \
     && playwright install chromium \
     && playwright install-deps chromium \
     && rm -rf /var/lib/apt/lists/*
+
+# Install SecLists wordlists for ffuf/gobuster directory fuzzing
+RUN mkdir -p /usr/share/seclists/Discovery/Web-Content && \
+    curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt \
+        -o /usr/share/seclists/Discovery/Web-Content/common.txt && \
+    curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-medium-directories.txt \
+        -o /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt && \
+    curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/big.txt \
+        -o /usr/share/seclists/Discovery/Web-Content/big.txt
 
 # Ensure ProjectDiscovery Go httpx wins over Python httpx CLI wrapper in PATH
 RUN ln -sf /root/go/bin/httpx /opt/venv/bin/httpx

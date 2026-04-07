@@ -68,11 +68,12 @@ export async function POST(request: NextRequest) {
       body = await request.json()
     }
 
-    const { userId, name, targetDomain, ipMode, ...optionalParams } = body as {
+    const { userId, name, targetDomain, ipMode, id: clientId, ...optionalParams } = body as {
       userId: string
       name: string
       targetDomain?: string
       ipMode?: boolean
+      id?: string
       [key: string]: unknown
     }
 
@@ -227,9 +228,11 @@ export async function POST(request: NextRequest) {
       sanitizedParams.targetIps = (sanitizedParams.targetIps as string[]).map(s => s.trim()).filter(Boolean)
     }
 
-    // Create project with required fields and valid optional params
+    // Create project with required fields and valid optional params.
+    // If the frontend provided a pre-generated ID (for uploads during creation), use it.
     const project = await prisma.project.create({
       data: {
+        ...(clientId ? { id: clientId } : {}),
         userId,
         name: name.trim(),
         targetDomain: ipMode ? '' : (targetDomain || '').trim(),
@@ -237,6 +240,52 @@ export async function POST(request: NextRequest) {
         ...sanitizedParams
       }
     })
+
+    // Sync JS Recon files uploaded during creation (before project existed in DB)
+    if (clientId) {
+      try {
+        const { existsSync } = await import('fs')
+        const { readdir } = await import('fs/promises')
+        const path = await import('path')
+
+        const JS_RECON_UPLOAD_PATH = process.env.JS_RECON_UPLOAD_PATH || '/data/js-recon-uploads'
+        const JS_RECON_CUSTOM_PATH = process.env.JS_RECON_CUSTOM_PATH || '/data/js-recon-custom'
+
+        const updateData: Record<string, unknown> = {}
+
+        // Sync uploaded JS files
+        const uploadDir = path.join(JS_RECON_UPLOAD_PATH, clientId)
+        if (existsSync(uploadDir)) {
+          const files = (await readdir(uploadDir)).filter(f => !f.startsWith('.'))
+          if (files.length > 0) updateData.jsReconUploadedFiles = files
+        }
+
+        // Sync custom extension files
+        const customDir = path.join(JS_RECON_CUSTOM_PATH, clientId)
+        const FILE_TYPE_MAP: Record<string, string> = {
+          patterns: 'jsReconCustomPatterns',
+          'sourcemap-paths': 'jsReconCustomSourcemapPaths',
+          packages: 'jsReconCustomPackages',
+          'endpoint-keywords': 'jsReconCustomEndpointKeywords',
+          frameworks: 'jsReconCustomFrameworks',
+        }
+        for (const [dirName, prismaField] of Object.entries(FILE_TYPE_MAP)) {
+          const typeDir = path.join(customDir, dirName)
+          if (existsSync(typeDir)) {
+            const entries = await readdir(typeDir)
+            if (entries.length > 0) {
+              updateData[prismaField] = path.join(typeDir, entries[0])
+            }
+          }
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await prisma.project.update({ where: { id: clientId }, data: updateData })
+        }
+      } catch (e) {
+        console.warn('Failed to sync JS Recon uploads on project creation:', e)
+      }
+    }
 
     return NextResponse.json(project, { status: 201 })
   } catch (error) {

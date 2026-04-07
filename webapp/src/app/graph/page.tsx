@@ -12,6 +12,8 @@ import { GvmConfirmModal } from './components/GvmConfirmModal'
 import { ReconLogsDrawer } from './components/ReconLogsDrawer'
 import { ViewTabs, type ViewMode, type TunnelStatus } from './components/ViewTabs'
 import { DataTable } from './components/DataTable'
+import { JsReconTable, exportJsReconXlsx } from './components/JsReconTable'
+import type { JsReconData } from './components/JsReconTable'
 import { ActiveSessions } from './components/ActiveSessions'
 import { RoeViewer } from './components/RoeViewer'
 import { KaliTerminal } from './components/KaliTerminal'
@@ -24,10 +26,13 @@ import { useProjectById } from '@/hooks/useProjects'
 import { useProject } from '@/providers/ProjectProvider'
 import { GVM_PHASES, GITHUB_HUNT_PHASES, TRUFFLEHOG_PHASES } from '@/lib/recon-types'
 import { OtherScansModal } from './components/OtherScansModal/OtherScansModal'
+import { useAlertModal, useToast } from '@/components/ui'
 import styles from './page.module.css'
 
 export default function GraphPage() {
   const router = useRouter()
+  const { alertError } = useAlertModal()
+  const toast = useToast()
   const { projectId, userId, currentProject, setCurrentProject, isLoading: projectLoading } = useProject()
 
   const [activeView, setActiveView] = useState<ViewMode>('graph')
@@ -328,6 +333,9 @@ export default function GraphPage() {
   const tableRows = useTableData(data)
   const filterTableRows = useTableData(filterGraphData ?? undefined)
   const [globalFilter, setGlobalFilter] = useState('')
+  const [tableViewMode, setTableViewMode] = useState<'all' | 'jsRecon'>('all')
+  const [jsReconSearch, setJsReconSearch] = useState('')
+  const [jsReconData, setJsReconData] = useState<JsReconData | null>(null)
   const [activeNodeTypes, setActiveNodeTypes] = useState<Set<string>>(new Set())
   const [tableInitialized, setTableInitialized] = useState(false)
 
@@ -528,16 +536,22 @@ export default function GraphPage() {
   }, [])
 
   const handleExportExcel = useCallback(() => {
-    let rows = effectiveTableRows
-    if (globalFilter) {
-      const search = globalFilter.toLowerCase()
-      rows = rows.filter(r =>
-        r.node.name?.toLowerCase().includes(search) ||
-        r.node.type?.toLowerCase().includes(search)
-      )
+    try {
+      let rows = effectiveTableRows
+      if (globalFilter) {
+        const search = globalFilter.toLowerCase()
+        rows = rows.filter(r =>
+          r.node.name?.toLowerCase().includes(search) ||
+          r.node.type?.toLowerCase().includes(search)
+        )
+      }
+      exportToExcel(rows)
+      toast.success('Excel exported')
+    } catch (err) {
+      console.error('Failed to export Excel:', err)
+      toast.error('Failed to export Excel')
     }
-    exportToExcel(rows)
-  }, [effectiveTableRows, globalFilter])
+  }, [effectiveTableRows, globalFilter, toast])
 
   // ── End table view state ──────────────────────────────────────────────
 
@@ -728,8 +742,9 @@ export default function GraphPage() {
     if (result) {
       setIsReconModalOpen(false)
       setActiveLogsDrawer('recon')
+      toast.info('Recon scan started')
     }
-  }, [startRecon, clearLogs])
+  }, [startRecon, clearLogs, toast])
 
   const handleDownloadJSON = useCallback(async () => {
     if (!projectId) return
@@ -743,11 +758,12 @@ export default function GraphPage() {
     })
     if (!res.ok) {
       const data = await res.json()
-      alert(data.error || 'Failed to delete node')
+      alertError(data.error || 'Failed to delete node')
       return
     }
+    toast.success('Node deleted')
     refetchGraph()
-  }, [projectId, refetchGraph])
+  }, [projectId, refetchGraph, toast])
 
   const handleToggleLogs = useCallback(() => {
     setActiveLogsDrawer(prev => prev === 'recon' ? null : 'recon')
@@ -763,8 +779,9 @@ export default function GraphPage() {
     if (result) {
       setIsGvmModalOpen(false)
       setActiveLogsDrawer('gvm')
+      toast.info('GVM scan started')
     }
-  }, [startGvm, clearGvmLogs])
+  }, [startGvm, clearGvmLogs, toast])
 
   const handleDownloadGvmJSON = useCallback(async () => {
     if (!projectId) return
@@ -776,12 +793,18 @@ export default function GraphPage() {
   }, [])
 
   const handleStartGithubHunt = useCallback(async () => {
-    clearGithubHuntLogs()
-    const result = await startGithubHunt()
-    if (result) {
-      setActiveLogsDrawer('githubHunt')
+    try {
+      clearGithubHuntLogs()
+      const result = await startGithubHunt()
+      if (result) {
+        setActiveLogsDrawer('githubHunt')
+        toast.info('GitHub Hunt started')
+      }
+    } catch (err) {
+      console.error('Failed to start GitHub Hunt:', err)
+      toast.error('Failed to start GitHub Hunt')
     }
-  }, [startGithubHunt, clearGithubHuntLogs])
+  }, [startGithubHunt, clearGithubHuntLogs, toast])
 
   const handleDownloadGithubHuntJSON = useCallback(async () => {
     if (!projectId) return
@@ -793,12 +816,18 @@ export default function GraphPage() {
   }, [])
 
   const handleStartTrufflehog = useCallback(async () => {
-    clearTrufflehogLogs()
-    const result = await startTrufflehog()
-    if (result) {
-      setActiveLogsDrawer('trufflehog')
+    try {
+      clearTrufflehogLogs()
+      const result = await startTrufflehog()
+      if (result) {
+        setActiveLogsDrawer('trufflehog')
+        toast.info('Trufflehog scan started')
+      }
+    } catch (err) {
+      console.error('Failed to start Trufflehog:', err)
+      toast.error('Failed to start Trufflehog')
     }
-  }, [startTrufflehog, clearTrufflehogLogs])
+  }, [startTrufflehog, clearTrufflehogLogs, toast])
 
   const handleDownloadTrufflehogJSON = useCallback(async () => {
     if (!projectId) return
@@ -813,9 +842,9 @@ export default function GraphPage() {
   const handlePauseRecon = useCallback(async () => { await pauseRecon() }, [pauseRecon])
   const handleResumeRecon = useCallback(async () => { await resumeRecon() }, [resumeRecon])
   const handleStopRecon = useCallback(async () => { await stopRecon() }, [stopRecon])
-  const handlePauseGvm = useCallback(async () => { await pauseGvm() }, [pauseGvm])
-  const handleResumeGvm = useCallback(async () => { await resumeGvm() }, [resumeGvm])
-  const handleStopGvm = useCallback(async () => { await stopGvm() }, [stopGvm])
+  const handlePauseGvm = useCallback(async () => { await pauseGvm(); toast.info('GVM scan paused') }, [pauseGvm, toast])
+  const handleResumeGvm = useCallback(async () => { await resumeGvm(); toast.info('GVM scan resumed') }, [resumeGvm, toast])
+  const handleStopGvm = useCallback(async () => { await stopGvm(); toast.info('GVM scan stopped') }, [stopGvm, toast])
   const handlePauseGithubHunt = useCallback(async () => { await pauseGithubHunt() }, [pauseGithubHunt])
   const handleResumeGithubHunt = useCallback(async () => { await resumeGithubHunt() }, [resumeGithubHunt])
   const handleStopGithubHunt = useCallback(async () => { await stopGithubHunt() }, [stopGithubHunt])
@@ -933,6 +962,7 @@ export default function GraphPage() {
         onEmergencyPauseAll={handleEmergencyPauseAll}
         isAnyPipelineRunning={isAnyPipelineRunning}
         isEmergencyPausing={isEmergencyPausing}
+        tunnelStatus={tunnelStatus}
         // Agent status
         agentActiveCount={agentSummary.activeCount}
         agentConversations={agentSummary.conversations}
@@ -979,6 +1009,18 @@ export default function GraphPage() {
         selectedFilterId={selectedFilterId}
         onSelectFilter={setSelectedFilterId}
         onDeleteFilter={handleDeleteFilter}
+        tableViewMode={tableViewMode}
+        onTableViewModeChange={setTableViewMode}
+        projectId={projectId}
+        jsReconSearch={jsReconSearch}
+        onJsReconSearchChange={setJsReconSearch}
+        onJsReconExportXlsx={jsReconData ? () => exportJsReconXlsx(jsReconData) : undefined}
+        jsReconMeta={jsReconData ? `${jsReconData.scan_metadata?.js_files_analyzed || 0} files${jsReconData.summary?.validated_keys?.live ? ` | ${jsReconData.summary.validated_keys.live} LIVE` : ''}` : undefined}
+        is3D={is3D}
+        showLabels={showLabels}
+        onToggle3D={setIs3D}
+        onToggleLabels={setShowLabels}
+        nodeCount={data?.nodes.length ?? 0}
       />
 
       <div ref={bodyRef} className={styles.body}>
@@ -1019,14 +1061,18 @@ export default function GraphPage() {
               onFilterCreatedAndSelect={handleFilterCreatedAndSelect}
             />
           ) : activeView === 'table' ? (
-            <DataTable
-              data={filterGraphData ?? data}
-              isLoading={filterLoading || isLoading}
-              error={error}
-              rows={effectiveTableRows}
-              globalFilter={globalFilter}
-              onGlobalFilterChange={setGlobalFilter}
-            />
+            tableViewMode === 'jsRecon' ? (
+              <JsReconTable projectId={projectId} search={jsReconSearch} onDataLoaded={setJsReconData} />
+            ) : (
+              <DataTable
+                data={filterGraphData ?? data}
+                isLoading={filterLoading || isLoading}
+                error={error}
+                rows={effectiveTableRows}
+                globalFilter={globalFilter}
+                onGlobalFilterChange={setGlobalFilter}
+              />
+            )
           ) : activeView === 'sessions' ? (
             <ActiveSessions
               sessions={activeSessions.sessions}
@@ -1058,6 +1104,7 @@ export default function GraphPage() {
         currentPhase={currentPhase}
         currentPhaseNumber={currentPhaseNumber}
         status={reconState?.status || 'idle'}
+        errorMessage={reconState?.error}
         onClearLogs={clearLogs}
         onPause={handlePauseRecon}
         onResume={handleResumeRecon}
@@ -1071,6 +1118,7 @@ export default function GraphPage() {
         currentPhase={gvmCurrentPhase}
         currentPhaseNumber={gvmCurrentPhaseNumber}
         status={gvmState?.status || 'idle'}
+        errorMessage={gvmState?.error}
         onClearLogs={clearGvmLogs}
         onPause={handlePauseGvm}
         onResume={handleResumeGvm}
@@ -1087,6 +1135,7 @@ export default function GraphPage() {
         currentPhase={githubHuntCurrentPhase}
         currentPhaseNumber={githubHuntCurrentPhaseNumber}
         status={githubHuntState?.status || 'idle'}
+        errorMessage={githubHuntState?.error}
         onClearLogs={clearGithubHuntLogs}
         onPause={handlePauseGithubHunt}
         onResume={handleResumeGithubHunt}
@@ -1103,6 +1152,7 @@ export default function GraphPage() {
         currentPhase={trufflehogCurrentPhase}
         currentPhaseNumber={trufflehogCurrentPhaseNumber}
         status={trufflehogState?.status || 'idle'}
+        errorMessage={trufflehogState?.error}
         onClearLogs={clearTrufflehogLogs}
         onPause={handlePauseTrufflehog}
         onResume={handleResumeTrufflehog}
@@ -1165,6 +1215,7 @@ export default function GraphPage() {
         is3D={is3D}
         showLabels={showLabels}
         activeView={activeView}
+        tableViewMode={tableViewMode}
         activeNodeTypes={activeNodeTypes}
         nodeTypeCounts={effectiveNodeTypeCounts}
         onToggleNodeType={handleToggleNodeType}

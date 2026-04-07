@@ -397,3 +397,66 @@
   font-family: var(--font-mono);
   color: var(--text-tertiary);
 }
+
+/* View mode toggles (graph view, far right) */
+.viewToggles {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Table view mode dropdown */
+.tableMenuContainer {
+  position: relative;
+}
+
+.tabDropdownIcon {
+  margin-left: 2px;
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.tabDropdownIcon:hover {
+  opacity: 1;
+}
+
+.tableDropdownMenu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  z-index: 20;
+  min-width: 130px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.tableDropdownItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.tableDropdownItem:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  color: var(--text-primary);
+}
+
+.tableDropdownItemActive {
+  composes: tableDropdownItem;
+  color: var(--text-primary);
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+}

@@ -46,6 +46,7 @@ interface UseAgentWebSocketReturn {
   sendToolConfirmation: (decision: 'approve' | 'modify' | 'reject', modifications?: Record<string, any>) => void
   sendAnswer: (answer: string) => void
   sendGuidance: (message: string) => void
+  sendSkillInject: (payload: { skill_id: string; skill_name: string; content: string }) => void
   sendStop: () => void
   sendResume: () => void
   disconnect: () => void
@@ -167,6 +168,12 @@ export function useAgentWebSocket({
   const sendGuidance = useCallback((message: string) => {
     if (!isAuthenticatedRef.current) return
     sendMessage(MessageType.GUIDANCE, { message })
+  }, [sendMessage])
+
+  // Public API: Send skill injection (push Chat Skill content into guidance queue)
+  const sendSkillInject = useCallback((payload: { skill_id: string; skill_name: string; content: string }) => {
+    if (!isAuthenticatedRef.current) return
+    sendMessage(MessageType.SKILL_INJECT, payload)
   }, [sendMessage])
 
   // Public API: Stop agent execution
@@ -384,6 +391,7 @@ export function useAgentWebSocket({
     sendToolConfirmation,
     sendAnswer,
     sendGuidance,
+    sendSkillInject,
     sendStop,
     sendResume,
     disconnect,

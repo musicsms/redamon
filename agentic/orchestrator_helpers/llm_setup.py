@@ -232,8 +232,6 @@ def apply_project_settings(orchestrator, project_id: str) -> None:
                 custom_llm_config=custom_config,
             )
         except (ValueError, Exception) as e:
-            # LLM setup failed (missing API key, bad config, etc.)
-            # Leave llm as None — callers check and return a clear error.
             logger.error(f"LLM setup failed for {new_model}: {e}")
             orchestrator.llm = None
             return

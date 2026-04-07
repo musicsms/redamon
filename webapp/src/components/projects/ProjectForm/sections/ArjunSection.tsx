@@ -25,7 +25,7 @@ const METHOD_LABELS: Record<string, string> = {
 }
 
 export function ArjunSection({ data, updateField }: ArjunSectionProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(true)
 
   const toggleMethod = (method: string) => {
     const current = data.arjunMethods ?? ['GET']
@@ -46,6 +46,7 @@ export function ArjunSection({ data, updateField }: ArjunSectionProps) {
           Arjun (Parameter Discovery)
           <NodeInfoTooltip section="Arjun" />
           <span className={styles.badgeActive}>Active</span>
+          {data.arjunPassive && <span className={styles.badgePassive}>Passive</span>}
         </h2>
         <div className={styles.sectionHeaderRight}>
           <div onClick={(e) => e.stopPropagation()}>

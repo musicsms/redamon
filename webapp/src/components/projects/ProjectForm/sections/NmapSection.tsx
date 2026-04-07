@@ -15,7 +15,7 @@ interface NmapSectionProps {
 }
 
 export function NmapSection({ data, updateField }: NmapSectionProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(true)
 
   return (
     <div className={styles.section}>
@@ -24,11 +24,7 @@ export function NmapSection({ data, updateField }: NmapSectionProps) {
           <Shield size={16} />
           Nmap Service Detection
           <NodeInfoTooltip section="Nmap" />
-          {data.nmapEnabled ? (
-            <span className={styles.badgeActive}>Active</span>
-          ) : (
-            <span className={styles.badgeInactive}>Disabled</span>
-          )}
+          <span className={styles.badgeActive}>Active</span>
         </h2>
         <div className={styles.sectionHeaderRight}>
           <div onClick={(e) => e.stopPropagation()}>

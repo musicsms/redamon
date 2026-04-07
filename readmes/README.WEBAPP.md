@@ -474,7 +474,7 @@ The component is split into a thin orchestrator (`AIAssistantDrawer.tsx`, ~426 l
 | `DrawerHeader` | Header bar — connection status, history toggle, new chat, download, close |
 | `PhaseIndicatorBar` | Phase badge, tool icons, attack skill badge, stealth/deep-think toggles, model badge, settings dropdown |
 | `ChatArea` | Scrollable message list — renders grouped items, loading eye, empty state |
-| `InputArea` | Textarea, send/stop/resume buttons |
+| `InputArea` | Textarea, send/stop/resume buttons, Chat Skill picker (lightning bolt), `/skill` autocomplete, active skill badge |
 | `ApprovalDialog` | Phase-transition approval overlay |
 | `QuestionDialog` | Agent Q&A overlay (text / single-choice / multi-choice) |
 | `SettingsModal` | Agent behaviour / tool matrix / attack skills settings overlay |
@@ -492,7 +492,7 @@ The component is split into a thin orchestrator (`AIAssistantDrawer.tsx`, ~426 l
 | Hook | Owns |
 |------|------|
 | `useWebSocketHandler` | WebSocket message dispatch (18+ message types) |
-| `useSendHandlers` | `handleSend`, `handleApproval`, `handleAnswer`, `handleStop`, `handleResume` |
+| `useSendHandlers` | `handleSend`, `handleApproval`, `handleAnswer`, `handleStop`, `handleResume`, `handleSkillCommand`, `activateSkill`, active skill state |
 | `useChatState` | `chatItems`, loading/stopped/phase state, `groupedChatItems` memo |
 | `useInteractionState` | Approval / Q&A / tool-confirmation state + double-submit refs |
 | `useConversationRestoration` | Conversation history, load/delete, `handleSelectConversation` |
@@ -548,6 +548,7 @@ The recon orchestrator automatically detects scan phases from log output:
 | 2 | Port Scanning |
 | 3 | HTTP Probing |
 | 4 | Resource Enumeration |
+| 4b | JS Recon (post-resource_enum, if enabled) |
 | 5 | Vulnerability Scanning |
 | 6 | MITRE Enrichment |
 | 7 | GitHub Secret Hunt |

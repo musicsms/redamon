@@ -9,6 +9,7 @@ Parallelization:
 - DNS resolution runs concurrently across subdomains (configurable worker count)
 """
 
+import os
 import subprocess
 import requests
 import re
@@ -297,6 +298,25 @@ def run_amass(domain: str, settings: dict = None) -> set:
     amass_temp = Path("/tmp/redamon/.amass_temp")
     amass_temp.mkdir(parents=True, exist_ok=True)
 
+    # The wordlist is inside this container at /app/recon/wordlists/
+    container_wordlist = '/app/recon/wordlists/jhaddix-all.txt'
+
+    # For the Amass sibling container, we need the HOST path.
+    # HOST_RECON_OUTPUT_PATH = <host_project>/recon/output
+    # parent = <host_project>/recon
+    # wordlist = <host_project>/recon/wordlists/jhaddix-all.txt
+    host_recon_output = os.environ.get('HOST_RECON_OUTPUT_PATH', '')
+    if host_recon_output:
+        host_recon_dir = os.path.dirname(host_recon_output)
+        wordlist_host_path = os.path.join(host_recon_dir, 'wordlists', 'jhaddix-all.txt')
+    else:
+        wordlist_host_path = ''
+
+    # Check the file exists INSIDE this container (not host path check)
+    wordlist_available = os.path.isfile(container_wordlist)
+
+    brute_wordlists = settings.get('AMASS_BRUTE_WORDLISTS', ['default'])
+
     command = [
         'docker', 'run', '--rm',
         '-v', f'{amass_temp}:/root/.config/amass',
@@ -309,6 +329,15 @@ def run_amass(domain: str, settings: dict = None) -> set:
         command.append('-active')
     if brute:
         command.append('-brute')
+        if 'jhaddix-all' in brute_wordlists and wordlist_available and wordlist_host_path:
+            # Insert volume mount BEFORE the docker image name in the command
+            img_idx = command.index(docker_image)
+            command.insert(img_idx, f'{wordlist_host_path}:/wordlist/jhaddix-all.txt:ro')
+            command.insert(img_idx, '-v')
+            command += ['-w', '/wordlist/jhaddix-all.txt']
+            print(f"[*][Amass] Using jhaddix all.txt wordlist (~2.18M entries) for brute force")
+        else:
+            print(f"[*][Amass] Using Amass built-in wordlist (~8K entries) for brute force")
 
     subdomains = set()
     try:

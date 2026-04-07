@@ -16,7 +16,7 @@ interface ShodanSectionProps {
 }
 
 export function ShodanSection({ data, updateField }: ShodanSectionProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(true)
   const { userId } = useProject()
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null) // null = loading
 
@@ -45,10 +45,18 @@ export function ShodanSection({ data, updateField }: ShodanSectionProps) {
           <NodeInfoTooltip section="Shodan" />
           <span className={styles.badgePassive}>Passive</span>
         </h2>
-        <ChevronDown
-          size={16}
-          className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
-        />
+        <div className={styles.sectionHeaderRight}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Toggle
+              checked={data.shodanEnabled}
+              onChange={(checked) => updateField('shodanEnabled', checked)}
+            />
+          </div>
+          <ChevronDown
+            size={16}
+            className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
+          />
+        </div>
       </div>
 
       {isOpen && (
@@ -61,6 +69,8 @@ export function ShodanSection({ data, updateField }: ShodanSectionProps) {
             Shodan&apos;s InternetDB (free, no key required) which provides ports, hostnames, CPEs, CVEs, and tags.
           </p>
 
+          {data.shodanEnabled && (
+          <>
           {noKey && (
             <div className={styles.shodanWarning}>
               <Info size={14} />
@@ -127,6 +137,8 @@ export function ShodanSection({ data, updateField }: ShodanSectionProps) {
               />
             </div>
           </div>
+          </>
+          )}
         </div>
       )}
     </div>

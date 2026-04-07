@@ -128,6 +128,11 @@ class ContainerManager:
                     if state.status not in (ReconStatus.COMPLETED, ReconStatus.ERROR):
                         state.status = ReconStatus.ERROR
                         state.error = "Container not found"
+                except APIError as e:
+                    logger.warning(f"Docker API error checking recon container for {project_id}: {e}")
+                    if state.status not in (ReconStatus.COMPLETED, ReconStatus.ERROR):
+                        state.status = ReconStatus.ERROR
+                        state.error = f"Docker API error: {e}"
 
             return state
 
@@ -224,6 +229,9 @@ class ContainerManager:
                     f"{Path(recon_path).parent}/graph_db": {"bind": "/app/graph_db", "mode": "ro"},
                     # Mount /tmp for Docker-in-Docker temp files (avoids spaces in paths)
                     "/tmp/redamon": {"bind": "/tmp/redamon", "mode": "rw"},
+                    # JS Recon shared volumes with webapp
+                    "redamon_js_recon_uploads": {"bind": "/data/js-recon-uploads", "mode": "ro"},
+                    "redamon_js_recon_custom": {"bind": "/data/js-recon-custom", "mode": "ro"},
                 },
                 command="python /app/recon/main.py",
             )
@@ -513,7 +521,7 @@ class ContainerManager:
                     except Exception:
                         break
 
-        except NotFound:
+        except (NotFound, APIError):
             yield ReconLogEvent(
                 log="Container stopped",
                 timestamp=datetime.now(timezone.utc),
@@ -591,6 +599,11 @@ class ContainerManager:
                     if state.status not in (GvmStatus.COMPLETED, GvmStatus.ERROR):
                         state.status = GvmStatus.ERROR
                         state.error = "Container not found"
+                except APIError as e:
+                    logger.warning(f"Docker API error checking GVM container for {project_id}: {e}")
+                    if state.status not in (GvmStatus.COMPLETED, GvmStatus.ERROR):
+                        state.status = GvmStatus.ERROR
+                        state.error = f"Docker API error: {e}"
 
             return state
 
@@ -911,7 +924,7 @@ class ContainerManager:
                     except Exception:
                         break
 
-        except NotFound:
+        except (NotFound, APIError):
             yield GvmLogEvent(
                 log="GVM container stopped",
                 timestamp=datetime.now(timezone.utc),
@@ -974,6 +987,11 @@ class ContainerManager:
                     if state.status not in (GithubHuntStatus.COMPLETED, GithubHuntStatus.ERROR):
                         state.status = GithubHuntStatus.ERROR
                         state.error = "Container not found"
+                except APIError as e:
+                    logger.warning(f"Docker API error checking GitHub hunt container for {project_id}: {e}")
+                    if state.status not in (GithubHuntStatus.COMPLETED, GithubHuntStatus.ERROR):
+                        state.status = GithubHuntStatus.ERROR
+                        state.error = f"Docker API error: {e}"
 
             return state
 
@@ -1287,7 +1305,7 @@ class ContainerManager:
                     except Exception:
                         break
 
-        except NotFound:
+        except (NotFound, APIError):
             yield GithubHuntLogEvent(
                 log="GitHub hunt container stopped",
                 timestamp=datetime.now(timezone.utc),
@@ -1342,6 +1360,11 @@ class ContainerManager:
                     if state.status not in (TrufflehogStatus.COMPLETED, TrufflehogStatus.ERROR):
                         state.status = TrufflehogStatus.ERROR
                         state.error = "Container not found"
+                except APIError as e:
+                    logger.warning(f"Docker API error checking TruffleHog container for {project_id}: {e}")
+                    if state.status not in (TrufflehogStatus.COMPLETED, TrufflehogStatus.ERROR):
+                        state.status = TrufflehogStatus.ERROR
+                        state.error = f"Docker API error: {e}"
 
             return state
 
@@ -1655,7 +1678,7 @@ class ContainerManager:
                     except Exception:
                         break
 
-        except NotFound:
+        except (NotFound, APIError):
             yield TrufflehogLogEvent(
                 log="TruffleHog container stopped",
                 timestamp=datetime.now(timezone.utc),

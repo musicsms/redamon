@@ -28,6 +28,7 @@ export function AgentBehaviourSection({ data, updateField }: AgentBehaviourSecti
   const dropdownRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+
   // Fetch models on mount (pass userId for user-specific providers)
   useEffect(() => {
     const params = userId ? `?userId=${userId}` : ''

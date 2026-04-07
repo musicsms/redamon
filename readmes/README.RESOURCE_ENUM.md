@@ -51,7 +51,7 @@ The `resource_enum.py` module provides comprehensive endpoint discovery and clas
 
 ```
 ┌─────────────────┐     ┌────────────────────────────────────────────────┐     ┌─────────────────┐
-│  http_probe     │────▶│              resource_enum                      │────▶│  vuln_scan      │
+│  http_probe     │────▶│              resource_enum                      │────▶│  js_recon (5b)  │────▶│  vuln_scan      │
 │  (live URLs,    │     │                                                │     │  (targeted      │
 │   responses)    │     │  ┌────────────┐ ┌────────────┐ ┌─────────────┐ │     │   scanning)     │
 └─────────────────┘     │  │  Katana    │ │    GAU     │ │ Kiterunner  │ │     └─────────────────┘
@@ -83,7 +83,7 @@ The `resource_enum.py` module provides comprehensive endpoint discovery and clas
 | **GAU Discovery** | Historical URL discovery from Wayback, CommonCrawl, OTX, URLScan (passive) |
 | **Kiterunner API Bruteforce** | Hidden API discovery using 40k+ Swagger/OpenAPI specifications |
 | **Hakrawler Crawling** | DOM-aware web crawling via Docker (active) |
-| **jsluice JS Analysis** | Passive JavaScript analysis to extract URLs, endpoints, and secrets |
+| **jsluice JS Analysis** | JavaScript analysis to extract URLs, endpoints, and secrets (downloads JS files from target) |
 | **FFuf Directory Fuzzing** | Brute-force directory/endpoint discovery using wordlists (built-in SecLists + custom uploads) |
 | **ParamSpider Parameter Mining** | Passive Wayback Machine CDX query for parameterized URLs — returns only URLs with query parameters, values replaced by placeholder (FUZZ) |
 | **Arjun Parameter Discovery** | Discovers hidden HTTP query/body parameters on discovered endpoints using ~25,000 parameter names. Multi-method parallel execution (GET/POST/JSON/XML) |
@@ -530,7 +530,7 @@ When `STEALTH_MODE` is enabled, Hakrawler is automatically **disabled** to reduc
 
 ## jsluice Configuration
 
-jsluice is a **passive** JavaScript analysis tool compiled into the recon container (no Docker image needed). It downloads JavaScript files already discovered by Katana/Hakrawler and analyzes their contents locally to extract URLs, API endpoints, and embedded secrets.
+jsluice is a JavaScript analysis tool compiled into the recon container (no Docker image needed). It downloads JavaScript files already discovered by Katana/Hakrawler from the target and analyzes their contents locally to extract URLs, API endpoints, and embedded secrets.
 
 ### 1. Core jsluice Settings
 
@@ -545,7 +545,7 @@ jsluice is a **passive** JavaScript analysis tool compiled into the recon contai
 
 ### 2. How jsluice Works
 
-jsluice is **passive** — it generates no additional web traffic beyond downloading JS files:
+jsluice sends HTTP requests to download each JS file from the target, then analyzes them locally:
 
 1. **Filter**: Selects `.js` and `.mjs` URLs from all URLs discovered by Katana/Hakrawler/GAU
 2. **Download**: Fetches JS files to a temporary directory (`/tmp/redamon/jsluice_<pid>/`)

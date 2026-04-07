@@ -16,6 +16,7 @@ const TOOL_KEY_LABEL: Record<string, string> = {
   web_search: 'Tavily',
   shodan: 'Shodan',
   google_dork: 'SerpAPI',
+  execute_wpscan: 'WPScan',
 }
 
 interface ToolExecutionCardProps {

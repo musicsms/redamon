@@ -309,6 +309,14 @@ flowchart TB
             Jsluice[jsluice<br/>JS URL + Secret Extraction]
         end
 
+        subgraph Module4b["4b️⃣ js_recon"]
+            JsPatterns[Secret Detection<br/>100 Regex Patterns]
+            JsValidate[Key Validation<br/>21 Service Validators]
+            JsSrcMap[Source Map<br/>Discovery]
+            JsDepConf[Dependency<br/>Confusion Check]
+            JsDomSink[DOM Sink +<br/>Framework Detection]
+        end
+
         subgraph Module5["5️⃣ vuln_scan"]
             Nuclei[Nuclei<br/>9000+ Templates]
             MITRE[add_mitre.py<br/>CWE/CAPEC Enrichment]

@@ -3,7 +3,7 @@ import { Suspense } from 'react'
 import '@/styles/index.css'
 import { QueryProvider } from '@/providers/QueryProvider'
 import { ProjectProvider } from '@/providers/ProjectProvider'
-import { ToastProvider } from '@/components/ui'
+import { ToastProvider, AlertProvider } from '@/components/ui'
 import { AppLayout } from '@/components/layout'
 
 export const metadata: Metadata = {
@@ -50,7 +50,9 @@ export default function RootLayout({
           <Suspense fallback={null}>
             <ProjectProvider>
               <ToastProvider>
-                <AppLayout>{children}</AppLayout>
+                <AlertProvider>
+                  <AppLayout>{children}</AppLayout>
+                </AlertProvider>
               </ToastProvider>
             </ProjectProvider>
           </Suspense>

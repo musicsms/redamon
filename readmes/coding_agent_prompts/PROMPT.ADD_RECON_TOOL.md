@@ -55,11 +55,71 @@ Integrate **[TOOL_NAME]** into the RedAmon recon pipeline.
 
 9. **Output format** — Study how the tool's results merge into the combined recon JSON output in `recon/main.py`. Determine if results extend an existing section (e.g., subdomains into `discover_subdomains()` return) or need a new section in the combined output.
 
-10. **Parallelization opportunities (fan-out / fan-in)** — Study the execution flow in `recon/main.py` and determine whether the new tool can run **in parallel** with other tools in the same phase. Look for:
-   - **Fan-out**: Can this tool be launched concurrently with other independent tools that share the same inputs? For example, multiple subdomain discovery sources (crt.sh, HackerTarget, Subfinder) all take the root domain as input and can run simultaneously. If the new tool has no dependency on the output of another tool in the same phase, it should fan out alongside them (e.g., using `concurrent.futures.ThreadPoolExecutor` or `asyncio.gather`).
-   - **Fan-in**: After parallel execution, results from multiple tools must be merged/deduplicated before the next phase consumes them. Determine how the new tool's results join the fan-in point — does it contribute to an existing aggregation (e.g., a shared `subdomains` set) or require a new merge step?
-   - **Dependencies that block parallelization**: If the tool depends on results from a prior tool (e.g., port scanning needs discovered hosts, URL crawling needs live subdomains), it must wait for that phase to complete — do NOT parallelize across dependency boundaries.
-   - Check existing parallel patterns in the codebase and follow the same executor/threading approach rather than introducing a new concurrency mechanism.
+10. **Report integration** — The reports page (`/reports`) generates HTML reports from Neo4j data. Study the report pipeline to plan how the new tool's findings will appear:
+   - `webapp/src/lib/report/reportData.ts` — contains query functions that pull tool data from Neo4j (e.g., `queryTrufflehog`, `querySecrets`, `queryJsRecon`, `queryOtx`), the `ReportData` interface, the `gatherReportData()` orchestrator, and the **risk score** calculation. Each tool has a dedicated `queryX()` function that runs Cypher queries filtered by `{project_id: $pid}` and returns structured data (totals, breakdowns by severity/type, and capped findings lists — typically max 50 items).
+   - `webapp/src/lib/report/reportTemplate.ts` — contains `renderX()` functions that produce conditional HTML sections (only rendered if findings > 0), and the dynamic TOC builder that includes/excludes sections based on data availability.
+   - `webapp/src/app/api/projects/[id]/reports/route.ts` — the POST handler that orchestrates data gathering, optional LLM narrative generation (via `condenseForAgent()`), and HTML generation. The `condenseForAgent()` function sends a summarized subset (15-20 items per tool) to the agent service for narrative text.
+   - **Risk score**: Every tool contributes a weighted score to the overall risk metric. Study the `rawRisk` calculation in `reportData.ts` to determine the appropriate weight for the new tool (e.g., Trufflehog: verified=80pts, unverified=30pts; OTX: pulses=20pts, malware=50pts; JsRecon: high/critical=40pts).
+   - **Existing pattern summary**: For each tool, there is (1) a TypeScript interface for its findings, (2) a `queryX()` function with Neo4j Cypher, (3) a section in the `ReportData` interface, (4) a call in `gatherReportData()`, (5) a `renderX()` function, (6) a TOC entry, (7) a risk score contribution, and (8) a condensed payload in `condenseForAgent()`.
+
+11. **Workflow view integration** — The project settings form has a visual workflow view (`webapp/src/components/projects/ProjectForm/WorkflowView/`) that renders the entire recon pipeline as an interactive node graph. Study these files to plan the new tool's integration:
+
+   - **`workflowDefinition.ts`** — Central registry. Contains:
+     - `WORKFLOW_TOOLS` array: each tool has `{ id, label, enabledField, group, badge }`. The `id` must match the key used in `nodeMapping.ts`. The `group` number determines the pipeline phase/column (1=Discovery, 2=OSINT, 3=Port Scanning, 4=HTTP Probing, 5=Resource Enum, 5.5=JS Recon, 6=Vuln Scanning, 7=CVE & MITRE, 8=Security Checks). The `badge` is `'active'`, `'passive'`, or `'both'`.
+     - `UNIVERSAL_DATA_NODES` (Domain, Subdomain, IP) — always shown, provided by Input node.
+     - `TRANSITIONAL_DATA_NODES` — shown only when connected to at least one tool.
+     - `DATA_NODE_CATEGORIES` — maps each data node type to a category (`identity`, `network`, `web`, `technology`, `security`, `external`) which determines its color.
+     - `WORKFLOW_GROUPS` — group metadata with label and color.
+   
+   - **`nodeMapping.ts`** — Two critical maps:
+     - `SECTION_INPUT_MAP[toolId]` — array of data node types the tool **consumes** (its inputs). These create edges FROM the data node TO the tool.
+     - `SECTION_NODE_MAP[toolId]` — array of data node types the tool **produces** (its outputs). These create edges FROM the tool TO the data node.
+     - The workflow graph uses these maps to automatically wire edges, compute data flow status (active vs starved), and detect broken chains.
+   
+   - **`workflowLayout.ts`** — Three-band layout engine:
+     - Upper band: data nodes that serve as inputs to tools (Domain, Subdomain, IP, Port, BaseURL, Endpoint, CVE, Service).
+     - Center band: tool nodes arranged by group column left-to-right.
+     - Lower band: data nodes that are outputs/enrichments (DNSRecord, ExternalDomain, Technology, Vulnerability, etc.).
+     - `getDataPlacement()` has an explicit placement map assigning each data node to `{ band: 'upper'|'lower', row: number }`. If the new tool produces a **new data node type**, it must be added here. Row 0 is closest to tools, higher rows are farther.
+   
+   - **`WorkflowNodeModal.tsx`** — Modal that opens when clicking a tool node. Has a `switch(toolId)` that renders the tool's settings section component. The new tool needs a case here.
+   
+   - **`useWorkflowGraph.ts`** — Builds React Flow nodes and edges from the definitions. Computes:
+     - Data node status: "active" if at least one enabled tool is a TRUE SOURCE (produces it without consuming it), otherwise "starved" (pulsing red).
+     - Tool chain-broken status: if any consumed transitional data node is starved.
+     - Edge colors: category-colored when active, grey when disabled, red when starved.
+     - No changes needed here for a new tool — it reads from `workflowDefinition.ts` and `nodeMapping.ts` automatically.
+
+   **Decision checklist for workflow integration:**
+   1. Determine the `group` number (which pipeline phase column).
+   2. Determine the `badge` type (`'active'`, `'passive'`, or `'both'`).
+   3. List all data node types consumed (inputs) and produced (outputs).
+   4. Check if any produced data types are NEW (not in `ALL_WORKFLOW_DATA_NODES`). If so, add them to `TRANSITIONAL_DATA_NODES`, `DATA_NODE_CATEGORIES`, and `getDataPlacement()` in the layout.
+   5. Check if existing data nodes need to be added to the tool's input/output maps (e.g., if the tool also enriches existing node types).
+
+12. **Parallelization opportunities (fan-out / fan-in)** — Determine which execution group in `recon/main.py` the new tool belongs to. The pipeline runs these groups in strict order; tools within a group run in parallel via `ThreadPoolExecutor`:
+
+   | Group | Execution | Tools | Input dependency |
+   |-------|-----------|-------|------------------|
+   | **GROUP 1** | Parallel (`max_workers=3`) | WHOIS, Subdomain Discovery (crt.sh + HackerTarget + Subfinder + Amass + Knockpy internally parallel), URLScan | Root domain only (no prior group) |
+   | **DNS** | Sequential | dnspython (`resolve_all_dns`, 20 workers internally) | GROUP 1 subdomains |
+   | **GROUP 2b** | Sequential, conditional | Uncover Target Expansion | DNS results; requires `OSINT_ENRICHMENT_ENABLED` + `UNCOVER_ENABLED` |
+   | **GROUP 3** | Parallel (`max_workers=3`) | Shodan, Naabu, Masscan | DNS-resolved IPs/hostnames |
+   | **GROUP 3.5** | Sequential | Nmap (-sV, --script vuln) | GROUP 3 merged port_scan data |
+   | **GROUP 3b** | Parallel (`max_workers=5`), independent of GROUP 3/3.5 | Censys, FOFA, OTX, Netlas, VirusTotal, ZoomEye, CriminalIP | DNS results only (passive OSINT, no port data needed) |
+   | **GROUP 4** | Sequential (httpx internally parallel) | httpx HTTP probe + Wappalyzer | GROUP 3 open ports + hostnames |
+   | **GROUP 5** | Mixed -- 4 parallel then 4 sequential | **Parallel**: Katana, Hakrawler, GAU, ParamSpider (`max_workers=4`). **Then sequential**: Kiterunner, jsluice (post-crawl), FFuf (post-jsluice), Arjun (post-FFuf). Then GAU results merged last. | GROUP 4 live URLs |
+   | **GROUP 5b** | Sequential (runs even if active scans skipped) | JS Recon | Resource enum output + uploaded JS files |
+   | **GROUP 6** | Sequential (Nuclei internally parallel) | Nuclei vuln scan, then MITRE enrichment | GROUP 4 live URLs |
+
+   **Rules for placing a new tool:**
+   - If it's a passive OSINT enrichment (queries third-party APIs, no traffic to target): add to **GROUP 3b** -- register it in the `_osint_tools` dict and provide a `run_X_enrichment_isolated()` wrapper (deep-copies `combined_result` so threads don't conflict).
+   - If it's a new subdomain discovery source: add to **GROUP 1** inside `discover_subdomains()` in `recon/domain_recon.py` (internally parallel).
+   - If it's a new port scanner or active host enrichment: add to **GROUP 3**.
+   - If it's a new URL discovery / crawling tool: add to the parallel phase of **GROUP 5** (the `ThreadPoolExecutor(max_workers=4)` block).
+   - If it's a new post-crawl analysis tool (needs crawled URLs): add to the sequential phase of **GROUP 5** after the parallel block.
+   - Any tool added to a parallel fan-out group **must** use the `_isolated` wrapper pattern: `run_X_isolated(combined_result, settings)` that deep-copies the input, runs the tool on the copy, and returns only the tool's result dict. See `recon/censys_enrich.py` or `recon/shodan_enrich.py` for the pattern.
+   - **Never parallelize across dependency boundaries** -- if the tool needs port scan results, it cannot run in GROUP 3; if it needs live URLs, it cannot run before GROUP 4.
 
 ### Phase 2: Implementation checklist
 
@@ -77,7 +137,12 @@ Integrate **[TOOL_NAME]** into the RedAmon recon pipeline.
 - [ ] Frontend section component in `webapp/src/components/projects/ProjectForm/sections/`
 - [ ] Section imported and rendered in `ProjectForm.tsx` under the correct tab
 - [ ] Section exported from `sections/index.ts`
-- [ ] `SECTION_INPUT_MAP` and `SECTION_NODE_MAP` updated in `nodeMapping.ts` (if new section)
+- [ ] `SECTION_INPUT_MAP` and `SECTION_NODE_MAP` updated in `nodeMapping.ts` — list ALL data node types the tool consumes (inputs) and produces (outputs). These drive the workflow graph edges automatically.
+- [ ] **Workflow view** (`webapp/src/components/projects/ProjectForm/WorkflowView/`):
+  1. Add entry to `WORKFLOW_TOOLS` in `workflowDefinition.ts` with correct `id` (must match `nodeMapping.ts` key), `label`, `enabledField` (camelCase Prisma field), `group` (pipeline phase number), and `badge` (`'active'`, `'passive'`, or `'both'`)
+  2. If tool produces **new data node types** not already in `TRANSITIONAL_DATA_NODES`: add them to `TRANSITIONAL_DATA_NODES` and `DATA_NODE_CATEGORIES` in `workflowDefinition.ts`, and add placement to `getDataPlacement()` in `workflowLayout.ts` (choose `band: 'upper'` for nodes consumed by later tools, `band: 'lower'` for terminal outputs/enrichments; `row: 0` closest to tools, higher rows farther)
+  3. Add a `case 'ToolId':` to the `switch(toolId)` in `WorkflowNodeModal.tsx` that renders the tool's section component (import it at the top of the file). Use `baseProps` for sections that only need `{ data, updateField }`, or `extendedProps` for sections that also need `{ projectId, mode }`
+  4. No changes needed in `useWorkflowGraph.ts` or `workflowLayout.ts` (unless adding new data node types) — they read from the definition files automatically
 - [ ] `/defaults` endpoint updated in `recon_orchestrator/api.py`
 - [ ] Graph DB: add or extend the appropriate `update_graph_from_*()` method in the correct mixin — `graph_db/mixins/osint_mixin.py` for OSINT enrichment tools, `graph_db/mixins/recon_mixin.py` for core recon phases. Do NOT edit `graph_db/neo4j_client.py` directly — it is a thin orchestrator that only imports the mixins.
 - [ ] **Graph completeness**: Cross-check every field stored in the enrichment output dict (`combined_result["toolname"]`) against the `update_graph_from_*()` method — every collected field must be written to a node property or relationship. Silently dropping a field (collecting it in the enrichment module but never reading it in the graph method) is a data loss bug. If a field doesn't fit any existing node, either map it to the closest existing property or document explicitly why it is intentionally omitted.
@@ -89,6 +154,19 @@ Integrate **[TOOL_NAME]** into the RedAmon recon pipeline.
   4. `webapp/src/app/graph/config/colors.ts` — add entry to `NODE_SIZES` if the new node type needs a non-default size
   5. `webapp/src/app/graph/components/DataTable/DataTableToolbar.tsx` — add the new node type to the type filter dropdown so users can filter by it
   6. `webapp/src/app/graph/components/PageBottomBar/PageBottomBar.tsx` — add the new node type to the legend if applicable
+- [ ] **Report data layer** (`webapp/src/lib/report/reportData.ts`):
+  1. Add a TypeScript interface for the tool's findings (e.g., `MyToolRecord`) with all fields queried from Neo4j
+  2. Add a new section to the `ReportData` interface (e.g., `myTool: { totalFindings: number; bySeverity: ...; findings: MyToolRecord[] }`)
+  3. Create a `queryMyTool(session, pid)` function with Cypher queries — must filter by `{project_id: $pid}`, include summary counts + breakdowns, and cap detailed findings (typically 50 items)
+  4. Call the new query function in `gatherReportData()` and include its result in the returned `ReportData` object
+  5. Add the tool's weighted contribution to the `rawRisk` score calculation — choose weights consistent with existing tools (study the risk score block for reference)
+  6. If the tool produces secrets/credentials, also add its count to the `metrics.secretsExposed` total
+- [ ] **Report template** (`webapp/src/lib/report/reportTemplate.ts`):
+  1. Create a `renderMyTool(data: ReportData): string` function that returns an HTML section — must be **conditional** (return empty string if no findings), include a `page-break` div, and use a unique `id` for the section anchor
+  2. Add the section to the **dynamic TOC** builder (look for `dynamicSections.push(...)`) — only include if findings > 0
+  3. Call `renderMyTool(data)` in the main `generateReportHtml()` function alongside the other render calls
+- [ ] **Report LLM condensing** (`webapp/src/app/api/projects/[id]/reports/route.ts`):
+  1. Add the tool's summarized data to the `condenseForAgent()` payload — include totals, breakdowns, and a capped subset of findings (15-20 items max) so the LLM can generate narrative text about the tool's results
 - [ ] If tool needs API keys: add field to `UserSettings` model in Prisma, fetch at runtime via `_fetch_user_api_key()`, show key status banner in frontend section
 - [ ] If tool is active (sends traffic to target): add overrides in `apply_stealth_overrides()` in `recon/project_settings.py`
 - [ ] If tool is involved in subdomain enumeration: results may include out-of-scope subdomains (e.g., related but not under the target root domain). These must be split into in-scope `subdomains` vs `external_domains` — follow the existing pattern in `recon/domain_recon.py` where discovered subdomains are checked against the target domain and out-of-scope entries are collected separately as external domains
@@ -101,5 +179,16 @@ Integrate **[TOOL_NAME]** into the RedAmon recon pipeline.
    - `[⚡]` — special mode indicator (e.g., `[⚡] BRUTEFORCE MODE`)
 
    See `recon/domain_recon.py`, `recon/port_scan.py`, `recon/whois_recon.py` for reference. Never use bare `print()` without the `[symbol][ToolName]` prefix.
+- [ ] **Recon Presets** (`webapp/src/lib/recon-presets/presets/*.ts`):
+  Hardcoded parameter presets exist in `webapp/src/lib/recon-presets/presets/`. Each preset is a partial dictionary of camelCase project settings that override defaults when a user selects it. When adding a new tool:
+  1. Review EVERY preset file in the `presets/` folder
+  2. For each preset, decide: should this new tool be **enabled or disabled** given the preset's stated goal? Read the preset's `fullDescription` to understand its intent (e.g., "JS Secret Miner" is JS-focused and disables irrelevant tools)
+  3. If the tool should be disabled in a preset, add `toolEnabled: false` to that preset's `parameters` object
+  4. If the tool should be enabled with non-default settings (e.g., higher limits, specific mode), add those parameters to the preset
+  5. If the tool uses default settings and the preset doesn't need to change it, do NOT add it -- missing keys automatically inherit from defaults (safe merge)
+  6. The preset registry is at `webapp/src/lib/recon-presets/index.ts` -- no changes needed there unless adding a new preset
+  7. Add all new tool parameters to `reconPresetSchema` in `webapp/src/lib/recon-presets/recon-preset-schema.ts` (Zod validation). Without this, AI-generated presets will silently strip the new tool's settings during validation.
+  8. Add the new tool's parameters (name, type, default, description) to the `RECON_PARAMETER_CATALOG` in `webapp/src/app/api/presets/generate/route.ts`. Without this, the LLM that generates AI presets won't know the tool exists and will never include its settings.
+  9. If the new tool introduces file-upload or target-identity settings, add them to `PRESET_EXCLUDED_FIELDS` in `webapp/src/lib/project-preset-utils.ts` so they are stripped when users save reusable presets. Standard toggle/number/string settings do NOT need to be excluded.
 - [ ] Error handling: try/except with timeout, Docker/binary not found, API errors — follow existing patterns
 - [ ] Build and test: `docker compose build recon` then run a scan

@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Save, X, Loader2, AlertTriangle, Download, ShieldAlert } from 'lucide-react'
+import { Save, X, Loader2, AlertTriangle, Download, ShieldAlert, Zap, Bookmark, FolderOpen, List, GitBranch } from 'lucide-react'
+import dynamic from 'next/dynamic'
 import type { Project } from '@prisma/client'
 import { validateProjectForm } from '@/lib/validation'
 import { isHardBlockedDomain } from '@/lib/hard-guardrail'
 import { useProject } from '@/providers/ProjectProvider'
+import { useAlertModal, useToast } from '@/components/ui'
 import styles from './ProjectForm.module.css'
 
 // Import sections
@@ -39,6 +41,16 @@ import { GvmScanSection } from './sections/GvmScanSection'
 import { CypherFixSettingsSection } from './sections/CypherFixSettingsSection'
 import { RoeSection } from './sections/RoeSection'
 import { OsintEnrichmentSection } from './sections/OsintEnrichmentSection'
+import { JsReconSection } from './sections/JsReconSection'
+import { ReconPresetModal } from './ReconPresetModal'
+import { SavePresetModal } from './SavePresetModal'
+import { UserPresetDrawer } from './UserPresetDrawer'
+import { getPresetById, type ReconPreset } from '@/lib/recon-presets'
+
+const WorkflowView = dynamic(
+  () => import('./WorkflowView/WorkflowView').then(m => ({ default: m.WorkflowView })),
+  { ssr: false, loading: () => <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Loading workflow...</div> }
+)
 
 type ProjectFormData = Omit<Project, 'id' | 'userId' | 'createdAt' | 'updatedAt' | 'user'>
 
@@ -58,6 +70,8 @@ interface ConflictResult {
 interface ProjectFormProps {
   initialData?: Partial<ProjectFormData> & { id?: string }
   onSubmit: (data: ProjectFormData & { roeFile?: File | null }) => Promise<void>
+  /** Save without navigating away (used by workflow modal save button) */
+  onSaveAndStay?: (data: ProjectFormData & { roeFile?: File | null }) => Promise<void>
   onCancel: () => void
   isSubmitting?: boolean
   mode: 'create' | 'edit'
@@ -67,26 +81,33 @@ interface ProjectFormProps {
 
 const TAB_GROUPS = [
   {
-    label: 'Scope',
-    style: 'tabGroupScope',
-    tabs: [
-      { id: 'roe', label: 'RoE' },
-    ],
-  },
-  {
     label: 'Recon Pipeline',
     style: 'tabGroupRecon',
     tabs: [
+      { id: 'preset', label: 'Recon Preset' },
       { id: 'target', label: 'Target & Modules' },
       { id: 'discovery', label: 'Discovery & OSINT' },
       { id: 'port', label: 'Port Scanning' },
       { id: 'http', label: 'HTTP Probing' },
       { id: 'resource', label: 'Resource Enum' },
+      { id: 'jsrecon', label: 'JS Recon' },
       { id: 'vuln', label: 'Vulnerability Scanning' },
       { id: 'cve', label: 'CVE & MITRE' },
       { id: 'security', label: 'Security Checks' },
-      { id: 'gvm', label: 'GVM Scan' },
+    ],
+  },
+  {
+    label: '',
+    style: 'tabGroupOther',
+    tabs: [
       { id: 'integrations', label: 'Other Scans', wide: true },
+    ],
+  },
+  {
+    label: 'Scope',
+    style: 'tabGroupScope',
+    tabs: [
+      { id: 'roe', label: 'RoE' },
     ],
   },
   {
@@ -108,6 +129,8 @@ const TAB_GROUPS = [
 ] as const
 
 type TabId = typeof TAB_GROUPS[number]['tabs'][number]['id']
+
+const RECON_TAB_IDS = new Set<string>(['preset', 'target', 'discovery', 'port', 'http', 'resource', 'jsrecon', 'vuln', 'cve', 'security'])
 
 // Minimal fallback defaults - only required fields
 // Full defaults are fetched from /api/projects/defaults (served by recon backend)
@@ -141,17 +164,34 @@ async function fetchDefaults(): Promise<Partial<ProjectFormData>> {
 export function ProjectForm({
   initialData,
   onSubmit,
+  onSaveAndStay,
   onCancel,
   isSubmitting = false,
   mode,
   projectIdFromRoute,
 }: ProjectFormProps) {
+  const { alertError, alertWarning } = useAlertModal()
+  const toast = useToast()
   const [activeTab, setActiveTab] = useState<TabId>('target')
+  const [viewMode, setViewMode] = useState<'tabs' | 'workflow'>('workflow')
   const [isLoadingDefaults, setIsLoadingDefaults] = useState(mode === 'create')
   const [formData, setFormData] = useState<ProjectFormData>(() => ({
     ...MINIMAL_DEFAULTS,
     ...initialData
   } as ProjectFormData))
+
+  // Recon Preset
+  const [isPresetModalOpen, setIsPresetModalOpen] = useState(false)
+  const [appliedPreset, setAppliedPreset] = useState<ReconPreset | null>(() => {
+    if (initialData?.reconPresetId) {
+      return getPresetById(initialData.reconPresetId as string) ?? null
+    }
+    return null
+  })
+
+  // User Presets
+  const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState(false)
+  const [isUserPresetDrawerOpen, setIsUserPresetDrawerOpen] = useState(false)
 
   // Domain conflict checking
   const [conflict, setConflict] = useState<ConflictResult | null>(null)
@@ -177,9 +217,14 @@ export function ProjectForm({
       .catch(() => setHasGithubToken(false))
   }, [userId])
 
-  // Prefer URL param on settings page so wordlist upload etc. always get a real id
+  // Prefer URL param on settings page so wordlist upload etc. always get a real id.
+  // In create mode, generate a stable ID upfront so uploads (JS Recon, FFuf wordlists)
+  // can use it immediately — the same ID is sent to the backend on save.
+  const [generatedId] = useState(() =>
+    typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '').slice(0, 25) : ''
+  )
   const projectId =
-    projectIdFromRoute ?? (initialData as { id?: string } | undefined)?.id
+    projectIdFromRoute ?? (initialData as { id?: string } | undefined)?.id ?? (mode === 'create' ? generatedId : undefined)
 
   // Check for domain conflicts (IP mode skips — tenant-scoped constraints allow overlap)
   const checkConflict = useCallback(async () => {
@@ -248,23 +293,43 @@ export function ProjectForm({
     setFormData(prev => ({ ...prev, ...fields }))
   }
 
+  const applyPreset = useCallback(async (preset: ReconPreset) => {
+    // Only apply the preset's own parameters (recon pipeline fields only).
+    // User-entered fields (name, targetDomain, etc.) are preserved because
+    // preset.parameters only contains recon-relevant keys.
+    setFormData(prev => ({ ...prev, ...preset.parameters }))
+    setAppliedPreset(preset)
+    setIsPresetModalOpen(false)
+    toast.success(`Recon preset "${preset.name}" applied`, 'Preset Applied')
+  }, [toast])
+
+  const handleLoadUserPreset = useCallback((settings: Record<string, unknown>) => {
+    setFormData(prev => ({ ...prev, ...settings } as ProjectFormData))
+    // Sync recon preset badge
+    if (settings.reconPresetId) {
+      setAppliedPreset(getPresetById(settings.reconPresetId as string) ?? null)
+    } else {
+      setAppliedPreset(null)
+    }
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!formData.name.trim()) {
-      alert('Project name is required')
+      alertWarning('Project name is required')
       return
     }
 
     if (!formData.ipMode && !formData.targetDomain.trim()) {
-      alert('Target domain is required')
+      alertWarning('Target domain is required')
       return
     }
 
     // Run field validation
     const validationErrors = validateProjectForm(formData as unknown as Record<string, unknown>)
     if (validationErrors.length > 0) {
-      alert('Validation errors:\n' + validationErrors.map(e => `- ${e.message}`).join('\n'))
+      alertWarning('Validation errors:\n' + validationErrors.map(e => `- ${e.message}`).join('\n'))
       return
     }
 
@@ -279,24 +344,77 @@ export function ProjectForm({
 
     // Block submission if there's a conflict
     if (conflict?.hasConflict) {
-      alert('Cannot save project: ' + conflict.message)
+      alertError('Cannot save project: ' + conflict.message)
       return
     }
 
     try {
-      // Attach roeFile to form data for multipart submission
-      const submitData = roeFile ? { ...formData, roeFile } : formData
+      // Attach roeFile and pre-generated ID to form data for submission
+      const submitData = {
+        ...formData,
+        reconPresetId: appliedPreset?.id ?? formData.reconPresetId ?? null,
+        ...(roeFile ? { roeFile } : {}),
+        ...(mode === 'create' && projectId ? { id: projectId } : {}),
+      }
       await onSubmit(submitData)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save project'
       if (message.toLowerCase().includes('guardrail') || message.toLowerCase().includes('permanently blocked')) {
-        // Extract the reason from guardrail error messages
         const reason = message
           .replace(/^Target blocked by guardrail:\s*/i, '')
           .replace(/^Target permanently blocked:\s*/i, '')
         setGuardrailError(reason || message)
       } else {
-        alert(message)
+        alertError(message)
+      }
+    }
+  }
+
+  const handleSaveAndStay = async () => {
+    if (!onSaveAndStay) return
+
+    if (!formData.name.trim()) {
+      alertWarning('Project name is required')
+      return
+    }
+    if (!formData.ipMode && !formData.targetDomain.trim()) {
+      alertWarning('Target domain is required')
+      return
+    }
+    const validationErrors = validateProjectForm(formData as unknown as Record<string, unknown>)
+    if (validationErrors.length > 0) {
+      alertWarning('Validation errors:\n' + validationErrors.map(e => `- ${e.message}`).join('\n'))
+      return
+    }
+    if (!formData.ipMode && formData.targetDomain) {
+      const hardCheck = isHardBlockedDomain(formData.targetDomain)
+      if (hardCheck.blocked) {
+        setGuardrailError(hardCheck.reason)
+        return
+      }
+    }
+    if (conflict?.hasConflict) {
+      alertError('Cannot save project: ' + conflict.message)
+      return
+    }
+    try {
+      const submitData = {
+        ...formData,
+        reconPresetId: appliedPreset?.id ?? formData.reconPresetId ?? null,
+        ...(roeFile ? { roeFile } : {}),
+        ...(mode === 'create' && projectId ? { id: projectId } : {}),
+      }
+      await onSaveAndStay(submitData)
+      toast.success('Project saved')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save project'
+      if (message.toLowerCase().includes('guardrail') || message.toLowerCase().includes('permanently blocked')) {
+        const reason = message
+          .replace(/^Target blocked by guardrail:\s*/i, '')
+          .replace(/^Target permanently blocked:\s*/i, '')
+        setGuardrailError(reason || message)
+      } else {
+        alertError(message)
       }
     }
   }
@@ -309,6 +427,9 @@ export function ProjectForm({
       <div className={styles.header}>
         <h1 className={styles.title}>
           {mode === 'create' ? 'Create New Project' : 'Project Settings'}
+          {appliedPreset && (
+            <span className={styles.presetBadge}>Started from: {appliedPreset.name}</span>
+          )}
         </h1>
         <div className={styles.actions}>
           <button
@@ -316,15 +437,37 @@ export function ProjectForm({
             className="secondaryButton"
             onClick={onCancel}
             disabled={isSubmitting}
+            title="Discard all unsaved changes and return to the previous page"
           >
             <X size={14} />
             Cancel
+          </button>
+          <button
+            type="button"
+            className="secondaryButton"
+            onClick={() => setIsUserPresetDrawerOpen(true)}
+            disabled={isSubmitting || isLoadingDefaults}
+            title="Load a previously saved preset to apply all its settings to this project (target and subdomain fields are preserved)"
+          >
+            <FolderOpen size={14} />
+            Load Preset
+          </button>
+          <button
+            type="button"
+            className="secondaryButton"
+            onClick={() => setIsSavePresetModalOpen(true)}
+            disabled={isSubmitting || isLoadingDefaults}
+            title="Save the current project settings as a reusable preset (everything except target domain, subdomains, and IP list)"
+          >
+            <Bookmark size={14} />
+            Save as Preset
           </button>
           {mode === 'edit' && projectId && (
             <button
               type="button"
               className="secondaryButton"
               onClick={() => window.open(`/api/projects/${projectId}/export`)}
+              title="Download a full project backup as a ZIP file including settings, conversations, graph data, reports, and artifacts"
             >
               <Download size={14} />
               Export
@@ -334,6 +477,7 @@ export function ProjectForm({
             type="submit"
             className="primaryButton"
             disabled={!canSubmit}
+            title={mode === 'create' ? 'Create the project with the current settings and start working' : 'Save all changes to the project settings'}
           >
             {isLoadingDefaults ? (
               <>
@@ -381,29 +525,102 @@ export function ProjectForm({
         </div>
       ) : (
         <>
+          <div className={styles.tabsWrapper}>
           <div className={styles.tabs}>
             {TAB_GROUPS.map((group, gi) => (
               <div key={gi} className={group.style ? styles[group.style] : styles.tabGroup}>
-                {group.label && (
-                  <span className={styles.tabGroupLabel}>{group.label}</span>
+                {group.label === 'Recon Pipeline' ? (
+                  <>
+                    <div className={styles.reconGroupInner}>
+                      <div className={styles.viewModeToggle}>
+                        <button
+                          type="button"
+                          className={`${styles.viewModeOption} ${viewMode === 'tabs' ? styles.viewModeOptionActive : ''}`}
+                          onClick={() => setViewMode('tabs')}
+                          title="Tab view"
+                        >
+                          <List size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.viewModeOption} ${viewMode === 'workflow' ? styles.viewModeOptionActive : ''}`}
+                          onClick={() => {
+                            setViewMode('workflow')
+                            if (!RECON_TAB_IDS.has(activeTab)) setActiveTab('target')
+                          }}
+                          title="Workflow view"
+                        >
+                          <GitBranch size={11} />
+                        </button>
+                      </div>
+                      <div className={styles.reconGroupContent}>
+                        <span className={styles.tabGroupLabel}>{group.label}</span>
+                        <div className={styles.tabGroupTabs}>
+                          {group.tabs.map(tab => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              className={`tab ${activeTab === tab.id ? 'tabActive' : ''} ${styles.compactTab} ${tab.id === 'preset' ? styles.presetTab : ''} ${tab.id !== 'preset' && viewMode !== 'tabs' ? styles.hiddenTab : ''}`}
+                              onClick={() => {
+                                if ((tab.id as string) === 'preset') {
+                                  setIsPresetModalOpen(true)
+                                } else if (viewMode === 'tabs') {
+                                  setActiveTab(tab.id)
+                                }
+                              }}
+                            >
+                              {tab.id === 'preset' && <Zap size={15} className={styles.presetIcon} />}
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {group.label && (
+                      <span className={styles.tabGroupLabel}>{group.label}</span>
+                    )}
+                    <div className={styles.tabGroupTabs}>
+                      {group.tabs.map(tab => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          className={`tab ${activeTab === tab.id ? 'tabActive' : ''} ${styles.compactTab} ${'wide' in tab && tab.wide ? styles.wideTab : ''} ${(tab.id as string) === 'preset' ? styles.presetTab : ''}`}
+                          onClick={() => {
+                            if ((tab.id as string) === 'preset') {
+                              setIsPresetModalOpen(true)
+                            } else {
+                              setActiveTab(tab.id)
+                            }
+                          }}
+                        >
+                          {(tab.id as string) === 'preset' && <Zap size={15} className={styles.presetIcon} />}
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
-                <div className={styles.tabGroupTabs}>
-                  {group.tabs.map(tab => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      className={`tab ${activeTab === tab.id ? 'tabActive' : ''} ${styles.compactTab} ${'wide' in tab && tab.wide ? styles.wideTab : ''}`}
-                      onClick={() => setActiveTab(tab.id)}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
               </div>
             ))}
           </div>
+          </div>
 
-          <div className={styles.content}>
+          <div className={viewMode === 'workflow' && RECON_TAB_IDS.has(activeTab) ? styles.contentWorkflow : styles.content}>
+            {/* Workflow view -- replaces recon tab content when in workflow mode */}
+            {viewMode === 'workflow' && RECON_TAB_IDS.has(activeTab) && (
+              <WorkflowView
+                formData={formData}
+                updateField={updateField}
+                projectId={projectId}
+                mode={mode}
+                onSave={onSaveAndStay ? handleSaveAndStay : undefined}
+              />
+            )}
+
+            {/* Tab-based views */}
             {activeTab === 'roe' && (
           <RoeSection
             data={formData}
@@ -414,14 +631,14 @@ export function ProjectForm({
           />
         )}
 
-        {activeTab === 'target' && (
+        {activeTab === 'target' && viewMode === 'tabs' && (
           <>
             <TargetSection data={formData} updateField={updateField} mode={mode} />
             <ScanModulesSection data={formData} updateField={updateField} />
           </>
         )}
 
-        {activeTab === 'discovery' && (
+        {activeTab === 'discovery' && viewMode === 'tabs' && (
           <>
             <SubdomainDiscoverySection data={formData} updateField={updateField} />
             <ShodanSection data={formData} updateField={updateField} />
@@ -430,7 +647,7 @@ export function ProjectForm({
           </>
         )}
 
-        {activeTab === 'port' && (
+        {activeTab === 'port' && viewMode === 'tabs' && (
           <>
             {!formData.naabuEnabled && !formData.masscanEnabled && (
               <div className={styles.shodanWarning}>
@@ -444,11 +661,11 @@ export function ProjectForm({
           </>
         )}
 
-        {activeTab === 'http' && (
+        {activeTab === 'http' && viewMode === 'tabs' && (
           <HttpxSection data={formData} updateField={updateField} />
         )}
 
-        {activeTab === 'resource' && (
+        {activeTab === 'resource' && viewMode === 'tabs' && (
           <>
             <KatanaSection data={formData} updateField={updateField} />
             <HakrawlerSection data={formData} updateField={updateField} />
@@ -461,30 +678,31 @@ export function ProjectForm({
           </>
         )}
 
-        {activeTab === 'vuln' && (
+        {activeTab === 'jsrecon' && viewMode === 'tabs' && (
+          <JsReconSection data={formData} updateField={updateField} projectId={projectId} mode={mode} />
+        )}
+
+        {activeTab === 'vuln' && viewMode === 'tabs' && (
           <NucleiSection data={formData} updateField={updateField} />
         )}
 
-        {activeTab === 'cve' && (
+        {activeTab === 'cve' && viewMode === 'tabs' && (
           <>
             <CveLookupSection data={formData} updateField={updateField} />
             <MitreSection data={formData} updateField={updateField} />
           </>
         )}
 
-        {activeTab === 'security' && (
+        {activeTab === 'security' && viewMode === 'tabs' && (
           <SecurityChecksSection data={formData} updateField={updateField} />
         )}
 
         {activeTab === 'integrations' && (
           <>
+            <GvmScanSection data={formData} updateField={updateField} />
             <GithubSection data={formData} updateField={updateField} hasGithubToken={hasGithubToken} />
             <TrufflehogSection data={formData} updateField={updateField} hasGithubToken={hasGithubToken} />
           </>
-        )}
-
-        {activeTab === 'gvm' && (
-          <GvmScanSection data={formData} updateField={updateField} />
         )}
 
         {activeTab === 'agent' && (
@@ -505,6 +723,33 @@ export function ProjectForm({
           </div>
         </>
       )}
+
+      {/* Recon Preset modal */}
+      <ReconPresetModal
+        isOpen={isPresetModalOpen}
+        onClose={() => setIsPresetModalOpen(false)}
+        onSelect={applyPreset}
+        onLoadUserPreset={handleLoadUserPreset}
+        currentPresetId={appliedPreset?.id}
+        userId={userId}
+        model={(formData.agentOpenaiModel as string) || 'claude-opus-4-6'}
+      />
+
+      {/* User Preset: Save modal */}
+      <SavePresetModal
+        isOpen={isSavePresetModalOpen}
+        onClose={() => setIsSavePresetModalOpen(false)}
+        formData={formData as unknown as Record<string, unknown>}
+        userId={userId}
+      />
+
+      {/* User Preset: Load drawer */}
+      <UserPresetDrawer
+        isOpen={isUserPresetDrawerOpen}
+        onClose={() => setIsUserPresetDrawerOpen(false)}
+        onLoad={handleLoadUserPreset}
+        userId={userId}
+      />
 
       {/* Guardrail block modal */}
       {guardrailError && (

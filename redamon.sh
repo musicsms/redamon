@@ -10,6 +10,8 @@ GVM_FLAG_FILE="$SCRIPT_DIR/.gvm-enabled"
 
 # Service lists
 CORE_SERVICES="postgres neo4j recon-orchestrator kali-sandbox agent webapp"
+TOOL_IMAGES="redamon-recon:latest redamon-vuln-scanner:latest redamon-github-hunter:latest redamon-trufflehog:latest"
+DEV_COMPOSE="-f docker-compose.yml -f docker-compose.dev.yml"
 
 # Colors
 RED='\033[0;31m'
@@ -98,6 +100,7 @@ remove_redamon_images() {
         "projectdiscovery/nuclei"
         "projectdiscovery/subfinder"
         "projectdiscovery/dnsx"
+        "projectdiscovery/uncover"
         "sxcurity/gau"
         "caffix/amass"
         "frost19k/puredns"
@@ -384,6 +387,45 @@ cmd_update() {
     echo -e "  ${CYAN}Webapp:${NC}  http://localhost:3000"
 }
 
+ensure_tool_images() {
+    local missing=false
+    for img in $TOOL_IMAGES; do
+        if ! docker image inspect "$img" &>/dev/null; then
+            missing=true
+            break
+        fi
+    done
+    if [[ "$missing" == "true" ]]; then
+        info "Tool images not found, building them (first time only)..."
+        export_version
+        docker compose --profile tools build
+        success "Tool images built."
+    fi
+}
+
+cmd_up_dev() {
+    local gvm_flag="false"
+    shift || true  # consume 'dev'
+    if [[ "${1:-}" == "--gvm" ]]; then
+        gvm_flag="true"
+    fi
+
+    ensure_tool_images
+
+    info "Starting RedAmon in DEV mode (GVM: ${gvm_flag})..."
+
+    if [[ "$gvm_flag" == "true" ]]; then
+        pull_gvm_images
+        # shellcheck disable=SC2086
+        docker compose $DEV_COMPOSE up -d
+    else
+        # shellcheck disable=SC2086
+        docker compose $DEV_COMPOSE up -d $CORE_SERVICES
+    fi
+
+    success "RedAmon DEV is running at http://localhost:3000 (hot-reload enabled)"
+}
+
 cmd_up() {
     local gvm_mode="false"
     if is_gvm_enabled; then
@@ -488,6 +530,8 @@ cmd_help() {
     echo -e "  ${GREEN}install --gvm${NC}    Build and start RedAmon (with GVM/OpenVAS)"
     echo -e "  ${GREEN}update${NC}           Pull latest version and smart-rebuild changed services"
     echo -e "  ${GREEN}up${NC}               Start services"
+    echo -e "  ${GREEN}up dev${NC}           Start in dev mode (hot-reload, auto-builds tool images)"
+    echo -e "  ${GREEN}up dev --gvm${NC}     Start in dev mode with GVM/OpenVAS"
     echo -e "  ${GREEN}down${NC}             Stop services (preserves data)"
     echo -e "  ${GREEN}clean${NC}            Remove containers and images (keeps data)"
     echo -e "  ${GREEN}purge${NC}            Remove everything including all data"
@@ -499,6 +543,8 @@ cmd_help() {
     echo "  ./redamon.sh install --gvm    # First-time setup (full stack)"
     echo "  ./redamon.sh update           # Update to latest version"
     echo "  ./redamon.sh up               # Start after reboot"
+    echo "  ./redamon.sh up dev           # Dev mode with hot-reload"
+    echo "  ./redamon.sh up dev --gvm     # Dev mode + GVM"
     echo ""
 }
 
@@ -511,7 +557,13 @@ cd "$SCRIPT_DIR"
 case "${1:-help}" in
     install) cmd_install "${2:-}" ;;
     update)  cmd_update ;;
-    up)      cmd_up ;;
+    up)
+        if [[ "${2:-}" == "dev" ]]; then
+            cmd_up_dev "${@:2}"
+        else
+            cmd_up
+        fi
+        ;;
     down)    cmd_down ;;
     clean)   cmd_clean ;;
     purge)   cmd_purge ;;

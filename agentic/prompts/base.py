@@ -1249,6 +1249,47 @@ GVM-specific properties (source="gvm"):
 - timestamp (string): commit timestamp
 - extra_data (string): JSON string with additional detector-specific data
 
+### JS Recon Scanner Nodes
+
+**JsReconFinding** - JavaScript reconnaissance findings. Two sub-types:
+
+1. **JS File nodes** (finding_type='js_file') - Represent each analyzed JavaScript file. All findings from that file are linked to this node.
+   - finding_type: 'js_file'
+   - title (string): filename (e.g. "app.js", "test_app.js")
+   - detail (string): full URL or upload:// path
+   - is_uploaded (boolean): true if manually uploaded, false if from pipeline crawl
+   - source_url (string): full URL or upload://filename
+
+2. **Finding nodes** (finding_type != 'js_file') - Individual findings linked to their parent JS file node.
+   - finding_type (string): dependency_confusion, source_map_exposure, dom_sink, framework, dev_comment, source_map_reference
+   - severity (string): critical, high, medium, low, info
+   - confidence (string): high, medium, low
+   - title (string): human-readable finding title
+   - detail (string): full finding detail
+   - evidence (string): matched pattern or code snippet
+   - source_url (string): JS file where finding was discovered
+   - source (string): always "js_recon"
+
+Graph hierarchy: Domain/BaseURL -> JS file node -> findings/secrets/endpoints
+- `(Domain)-[:HAS_JS_FILE]->(JsReconFinding {finding_type: 'js_file'})` for uploaded files
+- `(BaseURL)-[:HAS_JS_FILE]->(JsReconFinding {finding_type: 'js_file'})` for pipeline-crawled files
+- `(JsReconFinding {finding_type: 'js_file'})-[:HAS_JS_FINDING]->(JsReconFinding)` findings from that file
+- `(JsReconFinding {finding_type: 'js_file'})-[:HAS_SECRET]->(Secret)` secrets found in that file
+- `(JsReconFinding {finding_type: 'js_file'})-[:HAS_ENDPOINT]->(Endpoint)` endpoints extracted from that file
+
+Note: JS Recon also creates Secret nodes with source='js_recon' and extra fields:
+- validation_status (string): validated, invalid, unvalidated, skipped, incomplete
+- validation_info (string): JSON with validation details (scope, account info)
+- confidence (string): high, medium, low
+- detection_method (string): regex
+- key_type (string): category of secret (cloud, payment, auth, etc.)
+
+When user asks about "JS findings", "JavaScript attack surface", "JS secrets", or "what did JS Recon find":
+- First query JS file nodes: MATCH (jf:JsReconFinding {finding_type: 'js_file'})
+- Then traverse to findings: (jf)-[:HAS_JS_FINDING]->(finding), (jf)-[:HAS_SECRET]->(s), (jf)-[:HAS_ENDPOINT]->(e)
+- Query Secret nodes WHERE source = 'js_recon' for secrets
+- Query Endpoint nodes WHERE source = 'js_recon' for JS-extracted endpoints
+
 **ThreatPulse** - OTX threat intelligence pulses (named threat reports linking IPs/domains to adversaries)
 - pulse_id (string): OTX pulse ID (UNIQUE per tenant)
 - name (string): pulse title (e.g. "Lazarus Group C2 Infrastructure")
@@ -1349,6 +1390,13 @@ GVM-specific properties (source="gvm"):
 - `(d:Domain)-[:HAS_TRUFFLEHOG_SCAN]->(ts:TrufflehogScan)` - Domain has TruffleHog scan
 - `(ts:TrufflehogScan)-[:HAS_REPOSITORY]->(tr:TrufflehogRepository)` - Scan scanned repository
 - `(tr:TrufflehogRepository)-[:HAS_FINDING]->(tf:TrufflehogFinding)` - Repository has secret finding
+
+### JS Recon Relationships (hierarchical: parent -> file -> findings)
+- `(b:BaseURL)-[:HAS_JS_FILE]->(jf:JsReconFinding {finding_type: 'js_file'})` - BaseURL has analyzed JS file (pipeline crawl)
+- `(d:Domain)-[:HAS_JS_FILE]->(jf:JsReconFinding {finding_type: 'js_file'})` - Domain has analyzed JS file (uploaded files)
+- `(jf:JsReconFinding {finding_type: 'js_file'})-[:HAS_JS_FINDING]->(f:JsReconFinding)` - File has finding (dep confusion, DOM sink, etc.)
+- `(jf:JsReconFinding {finding_type: 'js_file'})-[:HAS_SECRET]->(s:Secret)` - File has secret (source='js_recon')
+- `(jf:JsReconFinding {finding_type: 'js_file'})-[:HAS_ENDPOINT]->(e:Endpoint)` - File has endpoint (source='js_recon')
 
 ### Gvm Exploitation Relationships
 - `(e:ExploitGvm)-[:EXPLOITED_CVE]->(c:CVE)` - GVM confirmed exploitation of CVE (only connection)
@@ -1532,15 +1580,47 @@ WHERE tr.name CONTAINS "repo-name"
 RETURN tf.detector_name, tf.file, tf.line, tf.verified, tf.redacted
 ```
 
-### ALL Secrets (Web + Git Repository)
-When user asks about "secrets" broadly, query BOTH Secret nodes AND TrufflehogFinding nodes:
+### JS Recon Findings
+```cypher
+// All analyzed JS files
+MATCH (file:JsReconFinding {finding_type: 'js_file'})
+RETURN file.title as filename, file.source_url as url, file.is_uploaded as uploaded
+
+// All findings from a specific JS file
+MATCH (file:JsReconFinding {finding_type: 'js_file'})-[:HAS_JS_FINDING]->(jf:JsReconFinding)
+WHERE file.title CONTAINS 'app.js'
+RETURN jf.finding_type, jf.severity, jf.title, jf.detail
+ORDER BY CASE jf.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
+
+// Dependency confusion findings (critical)
+MATCH (file:JsReconFinding {finding_type: 'js_file'})-[:HAS_JS_FINDING]->(jf:JsReconFinding {finding_type: 'dependency_confusion'})
+RETURN file.title as js_file, jf.title, jf.detail, jf.evidence
+
+// Secrets found in JS files (traverses file hierarchy)
+MATCH (file:JsReconFinding {finding_type: 'js_file'})-[:HAS_SECRET]->(s:Secret)
+RETURN file.title as js_file, s.secret_type, s.sample, s.severity, s.validation_status
+
+// JS-extracted endpoints per file
+MATCH (file:JsReconFinding {finding_type: 'js_file'})-[:HAS_ENDPOINT]->(e:Endpoint)
+RETURN file.title as js_file, e.method, e.path, e.category, e.endpoint_type
+```
+
+### ALL Secrets (Web + Git Repository + JS Recon + Uploads)
+When user asks about "secrets" broadly, query Secret nodes (from JS file nodes and BaseURL), TrufflehogFinding nodes, AND JsReconFinding nodes:
 ```cypher
 // Combined view of all secrets from all sources
 MATCH (b:BaseURL)-[:HAS_SECRET]->(s:Secret)
-RETURN 'Web Resource' as source, s.secret_type as type, s.source_url as location, s.severity as severity
+RETURN 'Web Resource' as source, s.secret_type as type, s.source as tool, s.source_url as location, s.severity as severity
+UNION ALL
+MATCH (file:JsReconFinding {finding_type: 'js_file'})-[:HAS_SECRET]->(s:Secret)
+RETURN 'JS File: ' + file.title as source, s.secret_type as type, s.source as tool, s.source_url as location, s.severity as severity
 UNION ALL
 MATCH (tf:TrufflehogFinding)
-RETURN 'Git Repository' as source, tf.detector_name as type, tf.repository + '/' + tf.file as location, CASE WHEN tf.verified THEN 'high' ELSE 'medium' END as severity
+RETURN 'Git Repository' as source, tf.detector_name as type, 'trufflehog' as tool, tf.repository + '/' + tf.file as location, CASE WHEN tf.verified THEN 'high' ELSE 'medium' END as severity
+UNION ALL
+MATCH (jf:JsReconFinding)
+WHERE jf.finding_type IN ['dependency_confusion', 'source_map_exposure', 'dom_sink']
+RETURN 'JS Analysis' as source, jf.finding_type as type, 'js_recon' as tool, jf.source_url as location, jf.severity as severity
 LIMIT 50
 ```
 
@@ -1646,10 +1726,11 @@ RETURN s.name, collect(t.name) as technologies
    - Vulnerability nodes = scanner findings (nuclei, gvm, security_check)
    - CVE nodes = known CVEs linked to detected technologies
    - Use UNION ALL to combine results from both node types
-2. **CRITICAL - Query BOTH Secret AND TrufflehogFinding nodes** when user asks about "secrets":
-   - Secret nodes = secrets found in live web resources (JS files, configs) via jsluice
+2. **CRITICAL - Query Secret, TrufflehogFinding, AND JsReconFinding nodes** when user asks about "secrets":
+   - Secret nodes = secrets found in live web resources (JS files, configs) via jsluice or js_recon
    - TrufflehogFinding nodes = secrets found in git repositories via TruffleHog
-   - Use UNION ALL to combine results from both node types
+   - JsReconFinding nodes = non-secret JS findings (dependency confusion, source maps, DOM sinks, frameworks)
+   - Use UNION ALL to combine results from all node types
 3. **Always use LIMIT** to restrict results (default: 20-50)
 4. **Relationship direction matters** - follow the arrows exactly as documented
 5. **Use property filters** in WHERE clauses, not relationship traversals for filtering

@@ -26,7 +26,7 @@ interface KeyStatus {
 }
 
 export function OsintEnrichmentSection({ data, updateField }: OsintEnrichmentSectionProps) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(true)
   const { userId } = useProject()
   const [keyStatus, setKeyStatus] = useState<KeyStatus | null>(null)
 
@@ -63,10 +63,18 @@ export function OsintEnrichmentSection({ data, updateField }: OsintEnrichmentSec
           <NodeInfoTooltip section="OsintEnrichment" />
           <span className={styles.badgePassive}>Passive</span>
         </h2>
-        <ChevronDown
-          size={16}
-          className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
-        />
+        <div className={styles.sectionHeaderRight}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Toggle
+              checked={data.osintEnrichmentEnabled}
+              onChange={(checked) => updateField('osintEnrichmentEnabled', checked)}
+            />
+          </div>
+          <ChevronDown
+            size={16}
+            className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
+          />
+        </div>
       </div>
 
       {isOpen && (
@@ -78,6 +86,8 @@ export function OsintEnrichmentSection({ data, updateField }: OsintEnrichmentSec
             independently per project.
           </p>
 
+          {data.osintEnrichmentEnabled && (
+          <>
           {/* Censys */}
           <div className={styles.subSection}>
             <div className={styles.toggleRow}>
@@ -307,6 +317,9 @@ export function OsintEnrichmentSection({ data, updateField }: OsintEnrichmentSec
             )}
           </div>
 
+
+          </>
+          )}
         </div>
       )}
     </div>

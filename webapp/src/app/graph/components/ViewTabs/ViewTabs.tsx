@@ -1,7 +1,9 @@
 'use client'
 
 import { memo, useState, useRef, useEffect, useCallback } from 'react'
-import { Waypoints, Table2, Terminal, Shield, Search, Download, SquareTerminal, Filter, Plus, Trash2, X } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Waypoints, Table2, Terminal, Shield, Search, Download, SquareTerminal, Filter, Plus, Trash2, X, ChevronDown, Code, GitBranch } from 'lucide-react'
+import { Toggle } from '@/components/ui'
 import styles from './ViewTabs.module.css'
 
 export type ViewMode = 'graph' | 'graphViews' | 'table' | 'sessions' | 'terminal' | 'roe'
@@ -42,6 +44,22 @@ interface ViewTabsProps {
   selectedFilterId?: string | null
   onSelectFilter?: (id: string | null) => void
   onDeleteFilter?: (id: string) => void
+  // Table view mode (All Nodes vs specialized views)
+  tableViewMode?: 'all' | 'jsRecon'
+  onTableViewModeChange?: (mode: 'all' | 'jsRecon') => void
+  // JS Recon table controls
+  jsReconSearch?: string
+  onJsReconSearchChange?: (value: string) => void
+  onJsReconExportXlsx?: () => void
+  jsReconMeta?: string
+  // Project ID for navigation
+  projectId?: string | null
+  // View mode toggles (shown in right section when graph active)
+  is3D?: boolean
+  showLabels?: boolean
+  onToggle3D?: (value: boolean) => void
+  onToggleLabels?: (value: boolean) => void
+  nodeCount?: number
 }
 
 export const ViewTabs = memo(function ViewTabs({
@@ -58,9 +76,24 @@ export const ViewTabs = memo(function ViewTabs({
   selectedFilterId,
   onSelectFilter,
   onDeleteFilter,
+  projectId,
+  tableViewMode = 'all',
+  onTableViewModeChange,
+  jsReconSearch,
+  onJsReconSearchChange,
+  onJsReconExportXlsx,
+  jsReconMeta,
+  is3D,
+  showLabels,
+  onToggle3D,
+  onToggleLabels,
+  nodeCount = 0,
 }: ViewTabsProps) {
+  const router = useRouter()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [tableMenuOpen, setTableMenuOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const tableMenuRef = useRef<HTMLDivElement>(null)
 
   const selectedFilter = dataFilters?.find(f => f.id === selectedFilterId)
   const hasFilters = dataFilters && dataFilters.length > 0
@@ -76,6 +109,18 @@ export const ViewTabs = memo(function ViewTabs({
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [dropdownOpen])
+
+  // Close table menu on outside click
+  useEffect(() => {
+    if (!tableMenuOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (tableMenuRef.current && !tableMenuRef.current.contains(e.target as Node)) {
+        setTableMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [tableMenuOpen])
 
   const handleSelectFilter = useCallback((id: string) => {
     if (id === selectedFilterId) {
@@ -177,15 +222,50 @@ export const ViewTabs = memo(function ViewTabs({
           <Waypoints size={14} />
           <span>Graph Map</span>
         </button>
-        <button
-          role="tab"
-          aria-selected={activeView === 'table'}
-          className={`${styles.tab} ${activeView === 'table' ? styles.tabActive : ''}`}
-          onClick={() => onViewChange('table')}
-        >
-          <Table2 size={14} />
-          <span>Data Table</span>
-        </button>
+        <div ref={tableMenuRef} className={styles.tableMenuContainer}>
+          <button
+            role="tab"
+            aria-selected={activeView === 'table'}
+            className={`${styles.tab} ${activeView === 'table' ? styles.tabActive : ''}`}
+            onClick={() => onViewChange('table')}
+          >
+            {tableViewMode === 'jsRecon' ? <Code size={14} /> : <Table2 size={14} />}
+            <span>{tableViewMode === 'jsRecon' ? 'JS Recon' : 'All Nodes'}</span>
+            <ChevronDown
+              size={18}
+              strokeWidth={3}
+              className={styles.tabDropdownIcon}
+              onClick={(e) => { e.stopPropagation(); setTableMenuOpen(!tableMenuOpen) }}
+            />
+          </button>
+          {tableMenuOpen && (
+            <div className={styles.tableDropdownMenu}>
+              <button
+                className={`${styles.tableDropdownItem} ${tableViewMode === 'all' ? styles.tableDropdownItemActive : ''}`}
+                onClick={() => { onTableViewModeChange?.('all'); setTableMenuOpen(false); onViewChange('table') }}
+              >
+                <Table2 size={12} /> All Nodes
+              </button>
+              <button
+                className={`${styles.tableDropdownItem} ${tableViewMode === 'jsRecon' ? styles.tableDropdownItemActive : ''}`}
+                onClick={() => { onTableViewModeChange?.('jsRecon'); setTableMenuOpen(false); onViewChange('table') }}
+              >
+                <Code size={12} /> JS Recon
+              </button>
+            </div>
+          )}
+        </div>
+        {projectId && (
+          <button
+            role="tab"
+            aria-selected={false}
+            className={styles.tab}
+            onClick={() => router.push(`/projects/${projectId}/settings`)}
+          >
+            <GitBranch size={14} />
+            <span>Recon Pipeline</span>
+          </button>
+        )}
         <button
           role="tab"
           aria-selected={activeView === 'sessions'}
@@ -219,28 +299,28 @@ export const ViewTabs = memo(function ViewTabs({
       </div>
 
       <div className={styles.rightSection}>
-        {(tunnelStatus?.ngrok?.active || tunnelStatus?.chisel?.active) && (
-          <div className={styles.tunnelBadges}>
-            {tunnelStatus.ngrok?.active && (
-              <span className={styles.tunnelBadge} title={`Tunnel active -- used for reverse shells. Target connects to ${tunnelStatus.ngrok.host}:${tunnelStatus.ngrok.port} which forwards to kali-sandbox:4444`}>
-                <span className={styles.tunnelDot} />
-                <span className={styles.tunnelName}>ngrok</span>
-                <span className={styles.tunnelSep}>|</span>
-                <span className={styles.tunnelHost}>{tunnelStatus.ngrok.host}:{tunnelStatus.ngrok.port}</span>
-              </span>
-            )}
-            {tunnelStatus.chisel?.active && (
-              <span className={styles.tunnelBadge} title={`Tunnel active -- used for reverse shells. Target connects to ${tunnelStatus.chisel.host}:${tunnelStatus.chisel.port} which forwards to kali-sandbox:4444. Web delivery at ${tunnelStatus.chisel.host}:${tunnelStatus.chisel.srvPort} -> kali-sandbox:8080`}>
-                <span className={styles.tunnelDot} />
-                <span className={styles.tunnelName}>chisel</span>
-                <span className={styles.tunnelSep}>|</span>
-                <span className={styles.tunnelHost}>{tunnelStatus.chisel.host}:{tunnelStatus.chisel.port}</span>
-              </span>
-            )}
+      {activeView === 'graph' && onToggle3D && onToggleLabels && (
+        <div className={styles.viewToggles}>
+          <div title={nodeCount > 1000 ? `3D disabled: graph has ${nodeCount.toLocaleString()} nodes (max 1,000 for 3D)` : undefined}>
+            <Toggle
+              checked={nodeCount > 1000 ? false : (is3D ?? false)}
+              onChange={onToggle3D}
+              labelOff="2D"
+              labelOn="3D"
+              disabled={nodeCount > 1000}
+              aria-label="Toggle 2D/3D view"
+            />
           </div>
-        )}
+          <Toggle
+            checked={showLabels ?? false}
+            onChange={onToggleLabels}
+            labelOn="Labels"
+            aria-label="Toggle labels"
+          />
+        </div>
+      )}
 
-      {activeView === 'table' && onGlobalFilterChange && (
+      {activeView === 'table' && tableViewMode === 'all' && onGlobalFilterChange && (
         <div className={styles.tableControls}>
           <div className={styles.searchWrapper}>
             <Search size={12} className={styles.searchIcon} />
@@ -262,6 +342,29 @@ export const ViewTabs = memo(function ViewTabs({
             <Download size={12} />
             <span>XLSX</span>
           </button>
+        </div>
+      )}
+
+      {activeView === 'table' && tableViewMode === 'jsRecon' && onJsReconSearchChange && (
+        <div className={styles.tableControls}>
+          {jsReconMeta && <span className={styles.rowCount}>{jsReconMeta}</span>}
+          <div className={styles.searchWrapper}>
+            <Search size={12} className={styles.searchIcon} />
+            <input
+              type="text"
+              className={styles.searchInput}
+              placeholder="Search JS Recon..."
+              value={jsReconSearch || ''}
+              onChange={e => onJsReconSearchChange(e.target.value)}
+              aria-label="Search JS Recon findings"
+            />
+          </div>
+          {onJsReconExportXlsx && (
+            <button className={styles.exportBtn} onClick={onJsReconExportXlsx} aria-label="Export to Excel">
+              <Download size={12} />
+              <span>XLSX</span>
+            </button>
+          )}
         </div>
       )}
       </div>

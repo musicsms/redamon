@@ -134,8 +134,13 @@ RUN mkdir -p /usr/share/seclists/Discovery/Web-Content && \
         -o /usr/share/seclists/Discovery/Web-Content/common.txt && \
     curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-medium-directories.txt \
         -o /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt && \
-    curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt \
-        -o /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-small.txt
+    curl -sL https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/big.txt \
+        -o /usr/share/seclists/Discovery/Web-Content/big.txt
+
+# Download jhaddix all.txt wordlist for Amass brute-force subdomain enumeration
+RUN mkdir -p /app/recon/wordlists && \
+    curl -sL "https://gist.githubusercontent.com/jhaddix/86a06c5dc309d08580a018c66354a056/raw/all.txt" \
+        -o /app/recon/wordlists/jhaddix-all.txt
 
 # Copy the application code
 # Copy recon module (includes recon/params.py and helpers/anonymity.py)

@@ -1621,6 +1621,7 @@ RETURN s.name AS host, svc.name AS service, u.url AS url,
 | TrufflehogRepository | id, name | ✅ Unique (global), ✅ Tenant index |
 | TrufflehogFinding | id, detector_name, verified, file, commit, line, repository | ✅ Unique (global), ✅ Tenant index |
 | Secret | id, secret_type, severity, source, source_url, base_url, sample | ✅ Unique (global), ✅ Tenant index |
+| JsReconFinding | id, finding_type, severity, confidence, title, detail, source_url | ✅ Unique (global), ✅ Tenant index |
 
 ---
 
@@ -2211,6 +2212,105 @@ MATCH (tr:TrufflehogRepository {user_id: $userId, project_id: $projectId})
       -[:HAS_FINDING]->(tf:TrufflehogFinding)
 WITH tr, count(tf) AS total, sum(CASE WHEN tf.verified THEN 1 ELSE 0 END) AS verified
 RETURN tr.name AS repo, total, verified ORDER BY total DESC
+```
+
+---
+
+## 🔍 JS Recon Scanner
+
+JS Recon performs deep JavaScript analysis beyond inline jsluice. It uses a hierarchical graph structure where each analyzed JS file is a node, and all findings from that file are linked to it.
+
+### JsReconFinding (JS File + Analysis Findings)
+
+The `JsReconFinding` label is used for two sub-types:
+
+**1. JS File nodes** (`finding_type='js_file'`) -- one per analyzed JavaScript file:
+
+```
+(:JsReconFinding {
+  id: "jsrf-{user_id}-{project_id}-file-{url_hash}",
+  user_id: "{user_id}",
+  project_id: "{project_id}",
+  finding_type: "js_file",
+  title: "app.js",                          // filename
+  detail: "https://target.com/js/app.js",   // full URL or upload://filename
+  is_uploaded: false,                        // true for manually uploaded files
+  source_url: "https://target.com/js/app.js",
+  base_url: "https://target.com",           // or 'upload' for uploaded files
+  source: "js_recon",
+  severity: "info",
+  confidence: "high",
+  discovered_at: "ISO timestamp"
+})
+```
+
+**2. Finding nodes** (`finding_type != 'js_file'`) -- individual findings linked to their parent file:
+
+```
+(:JsReconFinding {
+  id: "jsrf-{user_id}-{project_id}-{hash}",
+  user_id: "{user_id}",
+  project_id: "{project_id}",
+  finding_type: "dependency_confusion|source_map_exposure|dom_sink|framework|dev_comment|source_map_reference",
+  severity: "critical|high|medium|low|info",
+  confidence: "high|medium|low",
+  title: "Human-readable finding title",
+  detail: "Full finding detail",
+  evidence: "Matched pattern or code snippet (max 500 chars)",
+  source_url: "JS file URL where finding was discovered",
+  base_url: "Parent BaseURL or 'upload'",
+  source: "js_recon",
+  discovered_at: "ISO timestamp"
+})
+```
+
+**Relationships (hierarchical: parent -> file -> findings):**
+- `BaseURL -[:HAS_JS_FILE]-> JsReconFinding(js_file)` -- pipeline-crawled JS files
+- `Domain -[:HAS_JS_FILE]-> JsReconFinding(js_file)` -- uploaded JS files
+- `JsReconFinding(js_file) -[:HAS_JS_FINDING]-> JsReconFinding` -- findings from that file
+- `JsReconFinding(js_file) -[:HAS_SECRET]-> Secret` -- secrets found in that file
+- `JsReconFinding(js_file) -[:HAS_ENDPOINT]-> Endpoint` -- endpoints extracted from that file
+
+### Extended Secret Properties (source='js_recon')
+
+JS Recon secrets extend the existing Secret node with:
+- `validation_status`: validated, invalid, unvalidated, skipped, incomplete
+- `validation_info`: JSON string with validator response (scope, account info)
+- `confidence`: high, medium, low
+- `detection_method`: regex
+- `key_type`: category (cloud, payment, auth, js_service, etc.)
+
+### Constraints & Indexes
+
+```cypher
+CREATE CONSTRAINT jsreconfinding_unique IF NOT EXISTS
+FOR (jf:JsReconFinding) REQUIRE jf.id IS UNIQUE;
+
+CREATE INDEX idx_jsreconfinding_tenant IF NOT EXISTS
+FOR (jf:JsReconFinding) ON (jf.user_id, jf.project_id);
+```
+
+### Example Queries
+
+```cypher
+-- All analyzed JS files
+MATCH (file:JsReconFinding {finding_type: 'js_file', user_id: $userId, project_id: $projectId})
+RETURN file.title as filename, file.source_url as url, file.is_uploaded as uploaded
+
+-- All findings from a specific JS file
+MATCH (file:JsReconFinding {finding_type: 'js_file'})-[:HAS_JS_FINDING]->(jf:JsReconFinding)
+WHERE file.title CONTAINS 'app.js'
+RETURN jf.finding_type, jf.severity, jf.title, jf.detail
+
+-- Secrets found in JS files (traverses file hierarchy)
+MATCH (file:JsReconFinding {finding_type: 'js_file'})-[:HAS_SECRET]->(s:Secret)
+WHERE file.user_id = $userId AND file.project_id = $projectId
+RETURN file.title as js_file, s.secret_type, s.sample, s.severity, s.validation_status
+
+-- Full hierarchy: Domain -> JS files -> findings
+MATCH (d:Domain)-[:HAS_JS_FILE]->(file:JsReconFinding {finding_type: 'js_file'})-[:HAS_JS_FINDING]->(jf:JsReconFinding)
+RETURN d.name, file.title, jf.finding_type, jf.severity, jf.title
+ORDER BY CASE jf.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
 ```
 
 ---

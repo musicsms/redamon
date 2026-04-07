@@ -7,6 +7,175 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.6.2] - 2026-04-06
+
+### Fixed
+
+- **Pipeline crash resilience** -- wrapped all recon pipeline phase calls (`run_http_probe`, `run_resource_enum`, `run_vuln_scan`, `run_mitre_enrichment`) in try/except in both domain and IP mode. A failing phase now logs the error, records it in `metadata.phase_errors`, and continues to the next phase instead of killing the entire pipeline
+- **JS Recon analyzer crash isolation** -- added per-file try/except in all JS Recon analyzer loops (`run_patterns`, `run_framework_analysis`, `discover_and_analyze_sourcemaps`, `detect_dependency_confusion`, `extract_endpoints`, `detect_frameworks`, `detect_dom_sinks`). One malformed JS file no longer crashes the entire analyzer batch
+- **Docker API 500 crash** -- added `APIError` handling alongside existing `NotFound` catches in all four container status functions (`get_status`, `get_gvm_status`, `get_github_hunt_status`, `get_trufflehog_status`) and all four SSE log streaming functions. A Docker daemon 500 error during container inspection no longer crashes the SSE stream with an unhandled `ExceptionGroup`
+
+### Added
+
+- **Crash resilience test suite** -- new `recon/tests/test_crash_resilience.py` with 17 tests (12 local + 5 Docker-dependent) verifying that poisoned/malformed input in any analyzer batch is caught, logged, and skipped without affecting other items in the batch
+
+---
+
+## [3.6.1] - 2026-04-05
+
+### Fixed
+
+- **WorkflowView build failure** -- aligned `onSave` prop type from `() => void` to `() => Promise<void>` to match `WorkflowNodeModal`'s expected signature
+
+---
+
+## [3.6.0] - 2026-04-05
+
+### Added
+
+- **Recon Pipeline Workflow View** -- interactive visual diagram of the entire reconnaissance pipeline, available as an alternative to the tabbed settings interface. Toggle between Tab View and Workflow View using the icons at the left edge of the Recon Pipeline tab group:
+  - **Three-band layout** -- tools in the center horizontal row, consumed data nodes above, produced data nodes below, with dashed animated edges showing data flow direction
+  - **22 tool nodes** covering all pipeline stages: Discovery (Subdomain Discovery, URLScan, Uncover), OSINT (Shodan, OSINT Enrichment), Port Scanning (Naabu, Masscan, Nmap), HTTP Probing (Httpx), Resource Enumeration (Katana, Hakrawler, jsluice, FFuf, GAU, ParamSpider, Kiterunner, Arjun), JS Recon, Vulnerability Scanning (Nuclei), CVE & MITRE (CVE Lookup, MITRE), Security Checks
+  - **18 data node types** as visible convergence points (Domain, Subdomain, IP, DNSRecord, Port, Service, BaseURL, Endpoint, Parameter, Header, Certificate, Technology, Vulnerability, CVE, MitreData, Capec, Secret, ExternalDomain), colored by category (identity, network, web, technology, security, external)
+  - **Chain-breaking detection** -- when a tool is enabled but its required input data has no active producer, the data node turns red (starved) and the tool shows an amber warning with a detailed tooltip. Uses "true source" algorithm that excludes tools recycling their own output (e.g., Katana consumes and produces BaseURL)
+  - **Click highlighting** -- click any tool or data node to highlight it and all directly connected elements; non-connected edges dim for visual clarity
+  - **Inline enable/disable toggles** on each tool node, with changes immediately reflected in both views
+  - **Settings modal** -- click the gear icon on any tool to open the full settings panel (identical to Tab View) in a modal overlay
+  - **Shared state** -- both views read and write the same form data with zero re-fetching; React Query cache untouched
+  - **Code-split** -- Workflow View loaded via `next/dynamic` so React Flow only loads when the workflow toggle is activated
+
+- **Verified node mapping** -- deep-audited every tool's consumes/produces against the actual recon pipeline code. Fixed 15+ inaccuracies in the node mapping (added missing ExternalDomain outputs to 8 tools, corrected Shodan/Masscan/Nmap/Httpx input dependencies, added Technology output to Shodan/OSINT Enrichment/JsRecon, removed incorrect Service/Domain consumption from multiple tools)
+
+### Changed
+
+- **Node mapping corrections** -- updated `nodeMapping.ts` with verified produces/consumes for all 22 recon tools. Affects both the workflow diagram edges and the NodeInfoTooltip in tab mode
+
+---
+
+## [3.5.1] - 2026-04-05
+
+### Added
+
+- **WPScan WordPress scanner** -- new `execute_wpscan` agentic tool (Type B MCP) for WordPress vulnerability scanning. Detects vulnerable plugins, themes, users, config backups, and misconfigurations. 600s timeout, HEAVILY RESTRICTED in stealth mode, added to brute_force RoE category. Available in informational and exploitation phases.
+
+### Fixed
+
+- **Graph 3D rendering** -- removed LOD (Level-of-Detail) system that was causing disconnected edges and low-quality nodes during live recon. 3D now always renders at full quality (16-segment spheres, glow, wireframes, labels, particles)
+- **Graph 3D labels** -- labels now hide/show based on camera distance (300 unit threshold), improving readability when zoomed out
+
+### Changed
+
+- **Auto-switch to 2D** -- graphs with more than 1,000 nodes automatically switch to 2D rendering. The 3D toggle is disabled with a tooltip explaining the reason
+- **2D progressive quality reduction** -- 2D canvas progressively disables glow and particles above 1,000 nodes to maintain performance
+- **2D force layout** -- increased link distance (80) and capped charge repulsion range (250) so clusters are more spread internally and closer to each other
+- **Polling auto-stop** -- graph polling (5s interval during recon/agent) stops when graph exceeds 2,000 nodes to prevent performance degradation
+- **2D performance tiers** -- adjusted thresholds: full (0-1000), reduced (1001-2000), minimal (2001-5000), ultra-minimal (5000+)
+
+---
+
+## [3.5.0] - 2026-04-04
+
+### Added
+
+- **Recon Preset System** -- one-click recon configuration with 21 built-in presets covering common scanning scenarios. Each preset configures 328+ recon pipeline parameters (tool toggles, thresholds, rate limits, OSINT flags, etc.) in a single click:
+  - **Built-in Presets**: Full Pipeline Active/Passive/Maximum, Bug Bounty Quick Wins, Bug Bounty Deep Dive, API Security Audit, Infrastructure Mapper, OSINT Investigator, Web App Pentester, JS Secret Miner, Subdomain Takeover Hunter, Stealth Recon, CVE Hunter, Red Team Operator, Directory & Content Discovery, Cloud & External Exposure, Compliance & Header Audit, Secret & Credential Hunter, Parameter & Injection Surface, DNS & Email Security, Network Perimeter Large Scale
+  - **Recon Preset tab** in Recon Pipeline tab group (lightning bolt icon) opens a modal with card grid UI, expandable detail descriptions, and "Applied" badge tracking
+  - **Zod-validated schema** with 328 parameters covering all recon tools. Uses `.strip()` to prevent unknown key injection
+
+- **My Project Presets** -- save, load, and delete user project presets that capture the entire project configuration (recon pipeline, agent behavior, tool matrix, agent skills, CypherFix, and all other settings). Target-specific fields (domain, subdomains, IPs, RoE document, uploaded files) are automatically stripped for portability:
+  - **Save as Preset** button in project form header saves current config with name + description
+  - **Load Preset** button opens side drawer listing saved presets with merge-over-defaults loading
+  - Per-user storage in PostgreSQL (`UserProjectPreset` model)
+
+- **AI-Generated Presets** -- describe scanning goals in natural language and an LLM generates a validated recon preset. Two-step wizard (Describe -> Review) with enabled/disabled/tuned parameter summary:
+  - Supports all configured LLM providers (Anthropic, OpenAI, OpenRouter, OpenAI-compatible, Bedrock)
+  - System prompt with full recon parameter catalog guides the LLM
+  - Zod validation + JSON extraction pipeline with error details on failure
+  - Generated presets saved to My Project Presets collection
+
+- **Wiki documentation** -- new [Recon & Project Presets](https://github.com/samugit83/redamon/wiki/Recon-Presets) wiki page with full guide, 21-preset reference table, and AI generation walkthrough. Updated Creating a Project (16 tabs), Project Settings Reference, Running Reconnaissance, Home, and Sidebar
+
+---
+
+## [3.4.0] - 2026-04-03
+
+### Added
+
+- **JS Recon Scanner** -- comprehensive JavaScript reconnaissance module that runs as GROUP 5b in the recon pipeline (post-resource_enum, pre-vuln_scan). Analyzes JS files discovered by Katana/Hakrawler/GAU for secrets, hidden endpoints, dependency confusion vulnerabilities, source maps, DOM sinks, and framework fingerprints:
+  - **Secret Detection**: 100 hardcoded regex patterns covering cloud credentials (AWS, GCP, Azure, Firebase, DigitalOcean, Cloudflare), payment keys (Stripe, PayPal, Square, Razorpay), auth tokens (GitHub, GitLab, Slack, Discord, Twilio, SendGrid, Telegram, 20+ services), JS-specific services (Sentry, Algolia, Mapbox, Pusher, Supabase, OpenAI, Vercel), database URIs, JWTs, private keys, and infrastructure URLs
+  - **Key Validation**: 21 service-specific validators that make live API calls to confirm if discovered keys are active (AWS STS, GitHub /user, Stripe /v1/account, etc.). Rate-limited at 1 req/sec per service. Disabled in stealth mode
+  - **Source Map Discovery**: probes for `.map` files via sourceMappingURL comments, SourceMap HTTP headers, and 8 common path patterns. Parses discovered maps to extract original source filenames and scan sourcesContent for embedded secrets
+  - **Dependency Confusion Detection**: extracts scoped npm packages from import/require/export statements and webpack chunk names, checks each against public npm registry. Missing packages flagged as CRITICAL (attacker could register and execute arbitrary code)
+  - **Deep Endpoint Extraction**: extracts REST API calls (fetch, axios, $.ajax, XMLHttpRequest), GraphQL queries/mutations/introspection, WebSocket connections, React/Vue/Angular router definitions, admin/debug/auth endpoints, API documentation paths (/swagger, /openapi.json, /graphiql)
+  - **Framework Fingerprinting**: detects 12 frameworks with version extraction (React, Next.js, Vue.js, Nuxt.js, Angular, jQuery, Svelte, Ember, Backbone, Lodash, Moment.js, Bootstrap)
+  - **DOM Sink Detection**: 17 patterns for XSS vectors (innerHTML, eval, document.write, dangerouslySetInnerHTML), prototype pollution (__proto__, constructor.prototype), URL manipulation (location.href, window.open), and cross-origin messaging (postMessage)
+  - **Developer Comment Mining**: extracts TODO/FIXME/HACK/BUG/XXX markers and comments containing sensitive keywords (password, secret, token, credential, bypass)
+  - **Custom Extension Files**: upload JSON/TXT files to extend built-in patterns (custom secret regexes, source map probe paths, internal package names, endpoint keywords, framework signatures). Help guide modal with format docs + examples for each upload type. Client-side validation before upload
+  - **Manual JS File Upload**: upload .js/.mjs/.map/.json files from Burp Suite, mobile APKs, DevTools, or authenticated areas for analysis without crawling
+  - **25 project settings** across all 4 layers (Prisma schema, Python DEFAULT_SETTINGS, fetch_project_settings mapping, /defaults auto-serve). Includes enable toggle, max files, timeout, concurrency, 7 module toggles, 3 coverage expansion flags, min confidence filter, and 6 custom file upload paths
+  - **New "JS Recon" tab** in Recon Pipeline settings group (between Resource Enum and Vulnerability Scanning) with collapsible sub-sections for analysis scope, JS file sources, detection modules, key validation, custom extension files, and manual JS upload
+  - **Graph DB integration**: new `JsReconFinding` node type (fuchsia-600 color) with `(BaseURL)-[:HAS_JS_FINDING]->(JsReconFinding)` for pipeline discoveries and `(Domain)-[:HAS_JS_FINDING]->(JsReconFinding)` for uploaded file findings. Secret nodes extended with `source='js_recon'`, `validation_status`, `validation_info`, `confidence`, `detection_method` properties. Endpoint nodes with `source='js_recon'`
+  - **Neo4j schema**: unique constraint + tenant index for JsReconFinding. ON CREATE/ON MATCH pattern for Endpoints to avoid overwriting resource_enum source
+  - **AI Agent integration**: TEXT_TO_CYPHER_SYSTEM updated with JsReconFinding node schema, HAS_JS_FINDING relationship, example Cypher queries, and combined "all secrets" query including Domain-linked uploads. Tool registry updated with JsReconFinding in node list
+  - **Subdomain feedback loop**: JS-discovered in-scope subdomains merged back into combined_result for downstream modules
+  - **Security**: matched_text (raw secrets) redacted before writing to disk. Short secrets (<=12 chars) also redacted. Path traversal protection on all upload API routes via PROJECT_ID_RE regex validation. Upload file size limits (10MB JS, 2MB custom). JSON validation before accepting .json uploads
+  - **Stealth mode overrides**: JS_RECON_MAX_FILES=50, VALIDATE_KEYS=False, INCLUDE_CHUNKS=False, INCLUDE_FRAMEWORK_JS=False
+  - **72 unit tests** covering all 6 analysis modules + integration tests
+
+- **JS Recon DataTable view** -- new "JS Recon" option in the Graph page DataTable dropdown (alongside "All Nodes"). Specialized table with 6 sub-tabs (Secrets, Endpoints, Dependencies, Source Maps, Security Patterns, Attack Surface) displaying JS Recon findings with purpose-built columns. Universal search across all text fields. XLSX export with 13 sheets. Fetches data from `/api/js-recon/{projectId}/download`
+
+- **DataTable view mode dropdown** -- the "Data Table" tab on the Graph page now has a dropdown arrow to switch between "All Nodes" (generic node table) and "JS Recon" (specialized findings table). Bottom bar node filters hidden for JS Recon view
+
+- **View Mode + Labels toggles moved** -- 2D/3D toggle and Labels toggle moved from GraphToolbar to ViewTabs right section (visible only when Graph Map is active). Tunnel badges moved from ViewTabs to GraphToolbar next to PAUSE ALL button
+
+### Changed
+
+- **Report generation** -- added Secret, TruffleHog, JS Recon, OTX threat intelligence sections to HTML/PDF report generation (reportData.ts + reportTemplate.ts). Risk score now includes secrets, TruffleHog findings, JS Recon findings, and OTX threat data
+
+- **Bottom bar visibility** -- PageBottomBar (node type filters, session controls, stats) now hidden for Reverse Shell, RedAmon Terminal, RoE, and JS Recon views. Only visible for Graph Map, Graph Views, and All Nodes
+
+---
+
+## [3.3.0] - 2026-04-01
+
+### Added
+
+- **Chat Skills (`/skill` command)** -- on-demand reference injection system for the AI agent chat. Chat Skills are tactical reference docs (tool playbooks, vulnerability guides, framework notes) that you inject into the agent's context exactly when you need them, without affecting classification or phase routing:
+  - **`/skill` command**: type `/skill ssrf` to activate a skill, `/skill ssrf test the API` to activate and send a message in one shot, `/skill list` to browse all skills, `/skill remove` to deactivate
+  - **Skill picker button**: lightning bolt button next to send -- click to browse all skills grouped by category, click a skill to activate instantly. Includes "Import from Community" and "Upload .md" buttons directly in the dropdown
+  - **Slash autocomplete**: typing `/s` anywhere in the input triggers a floating dropdown with filtered skills -- arrow keys to navigate, Enter to select, works mid-sentence
+  - **Active skill badge**: shows the active skill name and category above the input with an X button to remove. Persists across messages until changed or removed
+  - **Persistent activation**: once activated, skill context is included with every subsequent message (prepended for new queries, injected via guidance queue for running agents)
+  - **Global Settings tab**: new "Chat Skills" tab between Agent Skills and API Keys with upload, edit description, download, delete, and category filtering
+  - **Import from Community**: bulk-import all 36 shipped reference skills (or community Agent Skills) with one click -- available in both Global Settings and the chat skill picker
+  - **WebSocket integration**: `SKILL_INJECT` / `SKILL_INJECT_ACK` message types push skill content through the existing guidance queue pipeline
+  - **Database**: `UserChatSkill` Prisma model with per-user storage, category field, and full CRUD API routes
+  - **36 community Chat Skills** by [@blackkhawkk](https://github.com/blackkhawkk) covering 7 categories: vulnerabilities (17), tooling (9), scan modes (3), frameworks (3), technologies (2), protocols (1), coordination (1)
+  - **15 skill categories**: general, vulnerabilities, tooling, scan_modes, frameworks, technologies, protocols, coordination, cloud, mobile, api_security, wireless, network, active_directory, social_engineering, reporting
+  - **Security**: path traversal protection in `load_skill_content()` via `.resolve().is_relative_to()` containment check
+
+- **Amass Brute Force Wordlist Selector** -- configurable wordlist selection for Amass DNS brute forcing:
+  - **Wordlist selector UI**: checkbox list under the Amass Bruteforce toggle in project settings. Amass Default (~8K entries) is always active and cannot be unchecked. jhaddix all.txt (~2.18M entries) is optional with time estimate badge
+  - **jhaddix all.txt**: Jason Haddix's comprehensive subdomain wordlist (~2.18M entries compiled from certificate transparency, bug bounty findings, DNS datasets) baked into the `redamon-recon` Docker image
+  - **Prisma schema**: `amassBruteWordlists` JSON field on Project model (default: `["default"]`)
+  - **Future extensibility**: adding more wordlists is just a `.txt` file in `recon/wordlists/` + a checkbox entry in the UI
+
+- **Import from Community for Agent Skills** -- new "Import from Community" button in Global Settings > Agent Skills tab. Bulk-imports all `.md` workflow files from `agentic/community-skills/` into the user's personal Agent Skills library with duplicate-by-name skipping
+
+### Fixed
+
+- **Amass wordlist mount bug** -- `os.path.isfile()` was checking a host filesystem path from inside the recon container, always returning `False`. The jhaddix wordlist was never mounted into the Amass container. Fixed to check the container-local path (`/app/recon/wordlists/jhaddix-all.txt`) and use the host path only for the Docker `-v` bind mount
+
+### Removed
+
+- **Claude Code proxy and provider** -- removed the host-side FastAPI proxy (`claude_proxy/server.py`), the `claude_code` LLM provider type, `ClaudeCodeToolManager`, auto-fallback logic, Docker credential mounts, and all related frontend/settings code. The OAuth token used by Claude Code is scoped to `user:sessions:claude_code` -- using it outside Claude Code is against Anthropic's Terms of Service. Users should use the existing Anthropic provider with a standard API key from console.anthropic.com
+
+- **OSINT agent tools** -- removed 7 incomplete tool manager classes (Censys, FOFA, OTX, Netlas, VirusTotal, ZoomEye, CriminalIP) from the agent. Missing 7 of 13 required integration steps (no TOOL_REGISTRY entries, no Tool Matrix UI, no stealth rules, no execute() dispatch). The recon pipeline integration for these services is unaffected. See `PROMPT.ADD_AGENTIC_TOOL.md` for the full integration checklist if re-adding later
+
+- **Always-on specialist skills injection** -- removed the `AGENT_SKILLS` project setting, `agentSkills` Prisma column, `build_skills_prompt_section()`, and the AgentBehaviourSection skill pills UI. Replaced by the on-demand Chat Skills system above
+
+---
+
 ## [3.2.0] - 2026-03-31
 
 ### Added
@@ -218,7 +387,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **"Remote Shells" renamed to "Reverse Shell"** — tab renamed for clarity to distinguish from the new RedAmon Terminal tab. The Reverse Shell tab manages agent-opened sessions (meterpreter, netcat, etc.), while RedAmon Terminal provides direct interactive sandbox access.
 
 - **Hakrawler Integration** — DOM-aware web crawler running as Docker container (`jauderho/hakrawler`). Runs in parallel with Katana, GAU, and Kiterunner during resource enumeration. Configurable depth, threads, subdomain inclusion, and scope filtering. Disabled automatically in stealth mode.
-- **jsluice JavaScript Analysis** — Passive JS analysis tool for extracting URLs, API endpoints, and embedded secrets (AWS keys, GitHub tokens, GCP credentials, etc.) from discovered JavaScript files. Runs sequentially after the parallel crawling phase.
+- **jsluice JavaScript Analysis** — JS analysis tool that downloads and extracts URLs, API endpoints, and embedded secrets (AWS keys, GitHub tokens, GCP credentials, etc.) from discovered JavaScript files. Runs sequentially after the parallel crawling phase.
 - **Secret Node in Neo4j** — Generic `Secret` node type linked to `BaseURL` via `[:HAS_SECRET]`. Source-agnostic design supports jsluice now and future secret discovery tools. Includes deduplication, severity classification, and redacted samples.
 - **Hakrawler enabled by default** — New projects have Hakrawler and Include Subdomains enabled by default.
 - **Tool Confirmation Gate** — per-tool human-in-the-loop safety gate that pauses the agent before executing dangerous tools (`execute_nmap`, `execute_naabu`, `execute_nuclei`, `execute_curl`, `metasploit_console`, `msf_restart`, `kali_shell`, `execute_code`, `execute_hydra`). Full multi-layer integration:

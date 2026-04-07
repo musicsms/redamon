@@ -25,11 +25,8 @@ export function NaabuSection({ data, updateField }: NaabuSectionProps) {
           <Radio size={16} />
           Naabu Port Scanner
           <NodeInfoTooltip section="Naabu" />
-          {data.naabuEnabled ? (
-            <span className={styles.badgeActive}>Active</span>
-          ) : (
-            <span className={styles.badgeInactive}>Disabled</span>
-          )}
+          <span className={styles.badgeActive}>Active</span>
+          {data.naabuPassiveMode && <span className={styles.badgePassive}>Passive</span>}
         </h2>
         <div className={styles.sectionHeaderRight}>
           <div onClick={(e) => e.stopPropagation()}>

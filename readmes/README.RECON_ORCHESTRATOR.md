@@ -240,6 +240,7 @@ The orchestrator automatically detects recon phases from log output:
 | 2 | `[Phase 2]`, `port.*scan` | Port Scanning |
 | 3 | `[Phase 3]`, `http.*prob` | HTTP Probing |
 | 4 | `[Phase 4]`, `resource.*enum` | Resource Enumeration |
+| 4b | `JS Recon Scanner`, `JsRecon` | JS Recon (post-resource_enum) |
 | 5 | `[Phase 5]`, `vuln.*scan` | Vulnerability Scanning |
 | 6 | `[Phase 6]`, `mitre`, `cwe`, `capec` | MITRE Enrichment |
 | 7 | `[Phase 7]`, `github.*secret` | GitHub Secret Hunt |

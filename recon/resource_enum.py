@@ -9,7 +9,7 @@ Features:
 - Hakrawler crawling for complementary endpoint discovery (active)
 - GAU passive URL discovery from archives (passive)
   - Wayback Machine, Common Crawl, OTX, URLScan
-- jsluice JavaScript analysis for hidden URLs and secrets (passive)
+- jsluice JavaScript analysis for hidden URLs and secrets (active - downloads JS files)
 - FFuf directory fuzzing for hidden content discovery (active)
 - HTML form parsing for POST endpoints
 - Parameter extraction and classification

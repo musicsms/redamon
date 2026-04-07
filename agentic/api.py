@@ -506,6 +506,76 @@ async def get_models(providers: str = Query(default="", description="JSON-encode
 
 
 # =============================================================================
+# SKILLS — Infosec-skills-compatible skill catalog endpoint
+# =============================================================================
+
+@app.get("/skills", tags=["System"])
+async def list_skills():
+    """
+    Return the catalog of all available Infosec-skills-compatible skills.
+
+    Each entry contains: id, name, description, category.
+    The frontend uses this to populate the skill selector in Project Settings.
+    """
+    from skill_loader import list_skills as _list_skills
+    skills = _list_skills()
+    return {"skills": skills, "total": len(skills)}
+
+
+@app.get("/skills/{skill_id:path}", tags=["System"])
+async def get_skill_content(skill_id: str):
+    """Return full content of a specific skill."""
+    from skill_loader import load_skill_content, list_skills as _list_skills
+    content = load_skill_content(skill_id)
+    if content is None:
+        return JSONResponse({"error": f"Skill not found: {skill_id}"}, status_code=404)
+    # Find metadata
+    skills = _list_skills()
+    meta = next((s for s in skills if s['id'] == skill_id), {})
+    return {"id": skill_id, "name": meta.get("name", skill_id), "description": meta.get("description", ""), "category": meta.get("category", "general"), "content": content}
+
+
+@app.get("/community-skills", tags=["System"])
+async def list_community_skills():
+    """Return catalog of community Agent Skills from agentic/community-skills/."""
+    from pathlib import Path
+    skills_dir = Path(__file__).parent / "community-skills"
+    skills = []
+    if skills_dir.exists():
+        for md_file in sorted(skills_dir.glob("*.md")):
+            if md_file.name == "README.md":
+                continue
+            content = md_file.read_text(encoding="utf-8")
+            name = md_file.stem.replace("_", " ").title()
+            desc = ""
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    desc = stripped[:200]
+                    break
+            skills.append({
+                "id": md_file.stem,
+                "name": name,
+                "description": desc,
+                "file": str(md_file),
+            })
+    return {"skills": skills, "total": len(skills)}
+
+
+@app.get("/community-skills/{skill_id}", tags=["System"])
+async def get_community_skill_content(skill_id: str):
+    """Return full content of a specific community Agent Skill."""
+    from pathlib import Path
+    skills_dir = Path(__file__).parent / "community-skills"
+    skill_path = skills_dir / f"{skill_id}.md"
+    if not skill_path.exists():
+        return JSONResponse({"error": f"Community skill not found: {skill_id}"}, status_code=404)
+    content = skill_path.read_text(encoding="utf-8")
+    name = skill_id.replace("_", " ").title()
+    return {"id": skill_id, "name": name, "content": content}
+
+
+# =============================================================================
 # LLM PROVIDER TEST — test a provider config with a simple message
 # =============================================================================
 

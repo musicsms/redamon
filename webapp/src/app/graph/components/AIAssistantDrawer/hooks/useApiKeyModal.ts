@@ -4,6 +4,7 @@ export const API_KEY_INFO: Record<string, { field: string; label: string; hint: 
   web_search: { field: 'tavilyApiKey', label: 'Tavily', hint: 'Enables web_search tool for CVE research and exploit lookups', url: 'https://app.tavily.com/home' },
   shodan: { field: 'shodanApiKey', label: 'Shodan', hint: 'Enables the shodan tool for internet-wide OSINT (search, host info, DNS, count)', url: 'https://account.shodan.io/' },
   google_dork: { field: 'serpApiKey', label: 'SerpAPI', hint: 'Enables google_dork tool for Google dorking OSINT (site:, inurl:, filetype:)', url: 'https://serpapi.com/manage-api-key' },
+  execute_wpscan: { field: 'wpscanApiToken', label: 'WPScan', hint: 'Enriches execute_wpscan results with vulnerability data from the WPScan database (free: 25 req/day)', url: 'https://wpscan.com/register' },
 }
 
 export function useApiKeyModal(userId: string) {
@@ -23,6 +24,7 @@ export function useApiKeyModal(userId: string) {
         if (!settings.tavilyApiKey) missing.add('web_search')
         if (!settings.shodanApiKey) missing.add('shodan')
         if (!settings.serpApiKey) missing.add('google_dork')
+        if (!settings.wpscanApiToken) missing.add('execute_wpscan')
         setMissingApiKeys(missing)
       })
       .catch(() => {})

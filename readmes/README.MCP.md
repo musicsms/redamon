@@ -177,6 +177,7 @@ Combined HTTP client and port scanner in a single server.
 |------|-------------|
 | `execute_curl(args)` | Run curl with any CLI arguments (60s timeout) |
 | `execute_naabu(args)` | Run naabu with any CLI arguments (300s timeout) |
+| `execute_wpscan(args)` | Run WPScan WordPress vulnerability scanner with any CLI arguments (600s timeout) |
 
 **Curl Examples:**
 ```python
@@ -191,6 +192,14 @@ execute_curl("-s -i -u admin:password http://10.0.0.5/admin")
 execute_naabu("-host 10.0.0.5 -p 1-1000 -json")
 execute_naabu("-host 10.0.0.5 -top-ports 100 -nmap-cli 'nmap -sV'")
 execute_naabu("-host 10.0.0.5 -p 21,22,80,443,3306,8080 -json")
+```
+
+**WPScan Examples:**
+```python
+execute_wpscan("--url http://10.0.0.5 --format json --no-banner")
+execute_wpscan("--url http://10.0.0.5 --enumerate p,t --format json --no-banner")
+execute_wpscan("--url http://10.0.0.5 --enumerate vp,vt --format json --no-banner")
+execute_wpscan("--url http://10.0.0.5 --api-token YOUR_TOKEN --format json --no-banner")
 ```
 
 ### Nuclei Server (Port 8002)

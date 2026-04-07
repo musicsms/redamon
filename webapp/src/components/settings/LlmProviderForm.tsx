@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { Loader2, CheckCircle, XCircle, Plus, Trash2, Eye, EyeOff } from 'lucide-react'
+import { useToast } from '@/components/ui'
 import { PROVIDER_TYPES, OPENAI_COMPAT_PRESETS } from '@/lib/llmProviderPresets'
 import type { ProviderType } from '@/lib/llmProviderPresets'
 import styles from './Settings.module.css'
@@ -48,6 +49,7 @@ const EMPTY_PROVIDER: ProviderData = {
 
 export function LlmProviderForm({ userId, provider, onSave, onCancel }: LlmProviderFormProps) {
   const isEditing = !!provider?.id
+  const toast = useToast()
   const [form, setForm] = useState<ProviderData>(() => provider || { ...EMPTY_PROVIDER })
   const [step, setStep] = useState<'type' | 'config'>(isEditing || form.providerType ? 'config' : 'type')
   const [saving, setSaving] = useState(false)
@@ -64,11 +66,13 @@ export function LlmProviderForm({ userId, provider, onSave, onCancel }: LlmProvi
 
   const selectType = useCallback((type: ProviderType) => {
     const typeDef = PROVIDER_TYPES.find(p => p.id === type)
-    setForm(prev => ({
-      ...prev,
-      providerType: type,
-      name: prev.name || typeDef?.name || type,
-    }))
+    setForm(prev => {
+      const updates: Partial<ProviderData> = {
+        providerType: type,
+        name: prev.name || typeDef?.name || type,
+      }
+      return { ...prev, ...updates }
+    })
     setStep('config')
   }, [])
 
@@ -133,9 +137,11 @@ export function LlmProviderForm({ userId, provider, onSave, onCancel }: LlmProvi
         throw new Error(err.error || 'Failed to save')
       }
 
+      toast.success(isEditing ? 'Provider updated' : 'Provider added')
       onSave()
     } catch (err) {
       console.error('Failed to save provider:', err)
+      toast.error('Failed to save provider')
     } finally {
       setSaving(false)
     }
@@ -171,7 +177,6 @@ export function LlmProviderForm({ userId, provider, onSave, onCancel }: LlmProvi
   const isKeyBased = ['openai', 'anthropic', 'openrouter'].includes(ptype)
   const isBedrock = ptype === 'bedrock'
   const isCompat = ptype === 'openai_compatible'
-
   return (
     <div className={styles.formSection}>
       <div className={styles.formHeader}>

@@ -198,6 +198,12 @@ class AgentOrchestrator:
         if shodan_key and self._shodan_manager:
             self._shodan_manager.key_rotator = _build_rotator(shodan_key, 'shodan')
 
+        # WPScan API token (injected silently into execute_wpscan args)
+        wpscan_token = user_settings.get('wpscanApiToken', '')
+        if wpscan_token and self.tool_executor:
+            self.tool_executor.set_wpscan_api_token(wpscan_token)
+            logger.info("WPScan API token configured for vulnerability enrichment")
+
         # Google dork (SerpAPI)
         serp_api_key = user_settings.get('serpApiKey', '')
         if self._google_dork_manager and self.tool_executor:

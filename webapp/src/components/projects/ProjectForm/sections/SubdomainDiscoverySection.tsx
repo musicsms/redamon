@@ -26,10 +26,18 @@ export function SubdomainDiscoverySection({ data, updateField }: SubdomainDiscov
           Subdomain Discovery
           <NodeInfoTooltip section="SubdomainDiscovery" />
         </h2>
-        <ChevronDown
-          size={16}
-          className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
-        />
+        <div className={styles.sectionHeaderRight}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Toggle
+              checked={data.subdomainDiscoveryEnabled}
+              onChange={(checked) => updateField('subdomainDiscoveryEnabled', checked)}
+            />
+          </div>
+          <ChevronDown
+            size={16}
+            className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
+          />
+        </div>
       </div>
 
       {isOpen && (
@@ -39,6 +47,8 @@ export function SubdomainDiscoverySection({ data, updateField }: SubdomainDiscov
             databases without touching the target. Active discovery sends DNS queries directly.
           </p>
 
+          {data.subdomainDiscoveryEnabled && (
+          <>
           <div className={styles.subSection}>
             <h3 className={styles.subSectionTitle}>Sources <span className={styles.badgePassive}>Passive</span></h3>
 
@@ -236,6 +246,36 @@ export function SubdomainDiscoverySection({ data, updateField }: SubdomainDiscov
                 disabled={!data.amassEnabled}
               />
             </div>
+
+            {data.amassBrute && data.amassEnabled && (
+              <div style={{ marginLeft: 'var(--space-6)', marginTop: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
+                <span className={styles.toggleLabel}>Brute Force Wordlists</span>
+                <p className={styles.toggleDescription}>
+                  Select which wordlists to use. Amass Default is always active.
+                </p>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginTop: 'var(--space-2)', opacity: 0.6 }}>
+                  <input type="checkbox" checked disabled />
+                  <span>Amass Default (~8K entries)</span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>always active</span>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+                  <input
+                    type="checkbox"
+                    checked={(Array.isArray(data.amassBruteWordlists) ? data.amassBruteWordlists as string[] : ['default']).includes('jhaddix-all')}
+                    onChange={(e) => {
+                      const current = (Array.isArray(data.amassBruteWordlists) ? data.amassBruteWordlists as string[] : ['default']).filter((w: string) => w !== 'jhaddix-all')
+                      if (e.target.checked) current.push('jhaddix-all')
+                      if (!current.includes('default')) current.unshift('default')
+                      updateField('amassBruteWordlists', current as any)
+                    }}
+                  />
+                  <span>jhaddix all.txt (~2.18M entries)</span>
+                </label>
+                <TimeEstimate estimate="+30-60 min extra scan time" />
+              </div>
+            )}
           </div>
 
           <div className={styles.subSection}>
@@ -337,6 +377,8 @@ export function SubdomainDiscoverySection({ data, updateField }: SubdomainDiscov
               />
             </div>
           </div>
+          </>
+          )}
         </div>
       )}
     </div>

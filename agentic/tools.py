@@ -996,6 +996,7 @@ def _handle_http_error(e: 'httpx.HTTPStatusError', action: str) -> str:
     return f"Shodan API error: HTTP {status}"
 
 
+
 # =============================================================================
 # PHASE-AWARE TOOL EXECUTOR
 # =============================================================================
@@ -1060,6 +1061,10 @@ class PhaseAwareToolExecutor:
             self._all_tools["google_dork"] = tool
         else:
             self._all_tools.pop("google_dork", None)
+
+    def set_wpscan_api_token(self, token: str) -> None:
+        """Store WPScan API token for auto-injection into execute_wpscan args."""
+        self._wpscan_api_token = token
 
     def _extract_text_from_output(self, output) -> str:
         """
@@ -1159,6 +1164,13 @@ class PhaseAwareToolExecutor:
                 # Google dork tool expects 'query' argument
                 query = tool_args.get("query", "")
                 output = await tool.ainvoke(query)
+            elif tool_name == "execute_wpscan":
+                # Inject WPScan API token if configured and not already in args
+                args = tool_args.get("args", "")
+                if getattr(self, '_wpscan_api_token', '') and '--api-token' not in args:
+                    args = f"--api-token {self._wpscan_api_token} {args}"
+                    tool_args = {**tool_args, "args": args}
+                output = await tool.ainvoke(tool_args)
             else:
                 # MCP tools - invoke with the appropriate argument
                 output = await tool.ainvoke(tool_args)

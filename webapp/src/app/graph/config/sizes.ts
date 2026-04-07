@@ -18,6 +18,7 @@ export const NODE_SIZES: Record<string, number> = {
   TrufflehogRepository: 1.5, // Medium repo nodes
   TrufflehogFinding: 1,      // Leaf: secret finding
   Secret: 1.2,              // Slightly larger than default leaf nodes
+  JsReconFinding: 1,        // Leaf: JS analysis finding
   ExternalDomain: 1.5,      // Small — informational
   // Attack Chain nodes (30% smaller than base)
   AttackChain: 1.4,            // Chain root

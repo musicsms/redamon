@@ -18,6 +18,7 @@ export enum MessageType {
   TOOL_CONFIRMATION = 'tool_confirmation',
   PING = 'ping',
   GUIDANCE = 'guidance',
+  SKILL_INJECT = 'skill_inject',
   STOP = 'stop',
   RESUME = 'resume',
 
@@ -38,6 +39,7 @@ export enum MessageType {
   PONG = 'pong',
   TASK_COMPLETE = 'task_complete',
   GUIDANCE_ACK = 'guidance_ack',
+  SKILL_INJECT_ACK = 'skill_inject_ack',
   STOPPED = 'stopped',
   FILE_READY = 'file_ready',
   PLAN_START = 'plan_start',
@@ -77,6 +79,18 @@ export interface GuidancePayload {
 
 export interface GuidanceAckPayload {
   message: string
+  queue_position: number
+}
+
+export interface SkillInjectPayload {
+  skill_id: string
+  skill_name: string
+  content: string
+}
+
+export interface SkillInjectAckPayload {
+  skill_id: string
+  skill_name: string
   queue_position: number
 }
 

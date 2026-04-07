@@ -45,6 +45,7 @@ class MessageType(str, Enum):
     TOOL_CONFIRMATION = "tool_confirmation"
     PING = "ping"
     GUIDANCE = "guidance"
+    SKILL_INJECT = "skill_inject"
     STOP = "stop"
     RESUME = "resume"
 
@@ -65,6 +66,7 @@ class MessageType(str, Enum):
     PONG = "pong"
     TASK_COMPLETE = "task_complete"
     GUIDANCE_ACK = "guidance_ack"
+    SKILL_INJECT_ACK = "skill_inject_ack"
     STOPPED = "stopped"
     FILE_READY = "file_ready"
     PLAN_START = "plan_start"
@@ -942,6 +944,47 @@ class WebSocketHandler:
                 "recoverable": True
             })
 
+    async def handle_skill_inject(self, connection: WebSocketConnection, payload: dict):
+        """Handle skill injection -- push skill content as a guidance message."""
+        try:
+            if not connection.authenticated:
+                await connection.send_message(MessageType.ERROR, {
+                    "message": "Not authenticated",
+                    "recoverable": False
+                })
+                return
+
+            skill_id = payload.get('skill_id', '')
+            skill_name = payload.get('skill_name', 'Unknown Skill')
+            content = payload.get('content', '')
+
+            if not content:
+                await connection.send_message(MessageType.ERROR, {
+                    "message": "Skill content is empty",
+                    "recoverable": True
+                })
+                return
+
+            # Format as guidance message with skill context
+            guidance_text = f"[CHAT SKILL: {skill_name}]\n\n{content}"
+            await connection.guidance_queue.put(guidance_text)
+            queue_size = connection.guidance_queue.qsize()
+
+            await connection.send_message(MessageType.SKILL_INJECT_ACK, {
+                "skill_id": skill_id,
+                "skill_name": skill_name,
+                "queue_position": queue_size,
+            })
+
+            logger.info(f"Skill '{skill_name}' injected for session {connection.session_id}")
+
+        except Exception as e:
+            logger.error(f"Skill inject failed: {e}")
+            await connection.send_message(MessageType.ERROR, {
+                "message": f"Failed to inject skill: {str(e)}",
+                "recoverable": True
+            })
+
     async def handle_stop(self, connection: WebSocketConnection, payload: dict):
         """Handle stop request — cancels active agent execution.
 
@@ -1077,6 +1120,8 @@ class WebSocketHandler:
                 await self.handle_ping(connection, payload)
             elif msg_type == MessageType.GUIDANCE:
                 await self.handle_guidance(connection, payload)
+            elif msg_type == MessageType.SKILL_INJECT:
+                await self.handle_skill_inject(connection, payload)
             elif msg_type == MessageType.STOP:
                 await self.handle_stop(connection, payload)
             elif msg_type == MessageType.RESUME:

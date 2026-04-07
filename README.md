@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/samugit83/redamon/stargazers"><img height="24" src="https://img.shields.io/github/stars/samugit83/redamon?style=flat&color=2E8B57&label=Stars" alt="GitHub Stars"/></a>
-  <img height="24" src="https://img.shields.io/badge/v3.2.0-release-2E8B57?style=flat" alt="Version 3.2.0"/>
+  <img height="24" src="https://img.shields.io/badge/v3.6.0-release-2E8B57?style=flat" alt="Version 3.6.2"/>
   <img height="24" src="https://img.shields.io/badge/WARNING-SECURITY%20TOOL-B22222?style=flat" alt="Security Tool Warning"/>
   <img height="24" src="https://img.shields.io/badge/LICENSE-MIT-4169A1?style=flat" alt="MIT License"/>
   <img height="24" src="https://img.shields.io/badge/END--TO--END-PIPELINE-A01025?style=flat" alt="End-to-End Pipeline"/>
@@ -49,6 +49,16 @@
 </p>
 <p align="center">
   <em>Three AI agents test in parallel — one validates credential policies via Hydra, one verifies a CVE exploit path through privilege escalation, one maps XSS vulnerabilities across the frontend.</em>
+</p>
+
+<br/>
+
+<h2 align="center">Dynamic Multi-Tool Parallel Recon Pipeline</h2>
+<p align="center">
+<img src="assets/recon-pipeline.gif" alt="Parallel recon pipeline in action" width="100%"/>
+</p>
+<p align="center">
+  <em>RedAmon launches multiple reconnaissance tools in parallel, each feeding results into a shared knowledge graph in real time. Tools spin up, adapt their scope based on live discoveries, and coordinate without manual intervention. The entire attack surface -- subdomains, ports, endpoints, parameters -- materializes in minutes, not hours.</em>
 </p>
 
 <br/>
@@ -157,6 +167,8 @@ All lifecycle management is handled by a single script:
 | `./redamon.sh install --gvm` | Build + start with GVM/OpenVAS |
 | **`./redamon.sh update`** | **Pull latest version, smart-rebuild only changed services** |
 | `./redamon.sh up` | Start services (auto-detects GVM mode) |
+| `./redamon.sh up dev` | Start in dev mode with hot-reload |
+| `./redamon.sh up dev --gvm` | Dev mode with GVM/OpenVAS |
 | `./redamon.sh down` | Stop services (preserves data) |
 | `./redamon.sh status` | Show running services, version, GVM mode |
 | `./redamon.sh clean` | Remove containers + images, keep data |
@@ -179,22 +191,12 @@ The webapp also checks for updates automatically and shows a notification in the
 
 For contributors and active development with **Next.js fast refresh**:
 
-**Build tool images:**
 ```bash
-docker compose --profile tools build
+./redamon.sh up dev           # without GVM
+./redamon.sh up dev --gvm     # with GVM/OpenVAS
 ```
 
-**Start dev environment (without GVM):**
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres neo4j recon-orchestrator kali-sandbox agent webapp
-```
-
-**Start dev environment (with GVM):**
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-```
-
-The dev override swaps the production webapp image for a dev container with your source code volume-mounted. Every file save triggers instant hot-reload in the browser.
+Tool images are built automatically on first run if they don't exist yet. The dev override swaps the production webapp image for a dev container with your source code volume-mounted. Every file save triggers instant hot-reload in the browser.
 
 #### When to Rebuild vs Restart
 
@@ -308,7 +310,7 @@ A fully automated, **parallelized** scanning engine running inside a Kali Linux 
 | | **OSINT Enrichment** | Shodan / InternetDB | Passive | Parallel with port scan |
 | | **Uncover Expansion** | ProjectDiscovery Uncover (13 engines: Shodan, Censys, FOFA, ZoomEye, Netlas, CriminalIP, Quake, Hunter, PublicWWW, HunterHow, Google, Onyphe, Driftnet) | Passive | Before port scan (GROUP 2b) |
 | | **Threat Intel Enrichment** | Censys, FOFA, OTX (AlienVault), Netlas, VirusTotal, ZoomEye, CriminalIP | Passive | 7 tools parallel (GROUP 3b) |
-| **Port Scanning** | **Port Scanning** | Masscan, Naabu | Active | Both parallel |
+| **Port Scanning** | **Port Scanning** | Masscan, Naabu | Active / Passive | Both parallel (Naabu supports passive InternetDB mode) |
 | **Nmap Service Detection** | **Service Version Detection** | Nmap (-sV, --script vuln) | Active | Sequential per target |
 | **HTTP Probing** | **HTTP Probing** | httpx | Active | Internal parallel |
 | | **Tech Detection** | Wappalyzer | Passive | Sequential (post-probe) |
@@ -316,10 +318,17 @@ A fully automated, **parallelized** scanning engine running inside a Kali Linux 
 | **Resource Enum** | **Web Crawling** | Katana, Hakrawler | Active | Parallel |
 | | **Archive Discovery** | GAU (Wayback, CommonCrawl, OTX) | Passive | Parallel with crawlers |
 | | **Parameter Mining** | ParamSpider (Wayback CDX) | Passive | Parallel with crawlers |
-| | **JS Analysis** | jsluice | Passive | Sequential (post-crawl) |
+| | **JS Analysis** | jsluice | Active | Sequential (post-crawl) |
 | | **Directory Fuzzing** | FFuf | Active | Sequential (post-jsluice) |
-| | **Parameter Discovery** | Arjun | Active | Methods parallel (GET/POST/JSON/XML) |
+| | **Parameter Discovery** | Arjun | Active / Passive | Methods parallel (GET/POST/JSON/XML) |
 | | **API Discovery** | Kiterunner | Active | Sequential per wordlist |
+| **JS Recon** | **JS Secret Detection** | 100 regex patterns + custom uploads | Passive | Parallel per file |
+| | **Key Validation** | 21 service validators (AWS, GitHub, Stripe, etc.) | Active | Rate-limited (1/sec/svc) |
+| | **Source Map Discovery** | Comment, header, path probing | Active | Per JS file |
+| | **Dependency Confusion** | npm registry check | Passive | Per scoped package |
+| | **Endpoint Extraction** | REST, GraphQL, WebSocket, router patterns | Passive | Per JS file |
+| | **Framework Fingerprinting** | 12 built-in + custom signatures | Passive | Per JS file |
+| | **DOM Sink Detection** | 17 XSS/prototype pollution patterns | Passive | Per JS file |
 | **Vulnerability Scanning** | **Vulnerability Scanning** | Nuclei (9,000+ templates + DAST + custom template upload) | Active | Internal parallel |
 | **Security Checks** | **Security Checks** | WAF bypass, direct IP access, TLS expiry, missing headers, cache-control | Active | Parallel workers |
 | **CVE & MITRE** | **CVE Enrichment** | NVD API, Vulners API | Passive | Sequential |
@@ -354,6 +363,7 @@ A **LangGraph-based autonomous agent** implementing the ReAct pattern. It progre
 | **Scanning** | **execute_naabu** | Fast port scanning and verification | Info, Exploit | network_recon :8000 |
 | | **execute_nmap** | Deep service detection (-sV), OS fingerprint, NSE scripts | All | nmap :8004 |
 | | **execute_nuclei** | CVE verification and exploitation with 9,000+ templates + custom uploads | Info, Exploit | nuclei :8002 |
+| | **execute_wpscan** | WordPress vulnerability scanner -- detects vulnerable plugins, themes, users, misconfigurations | Info, Exploit | network_recon :8000 |
 | **Web & HTTP** | **execute_curl** | HTTP requests -- reachability, headers, status codes, banners | All | network_recon :8000 |
 | | **execute_playwright** | Headless Chromium browser automation -- JS-rendered content extraction and interactive scripting for SPAs, form testing, XSS verification | All | playwright :8005 |
 | **Exploitation** | **metasploit_console** | Persistent msfconsole -- exploit execution, session management, post-exploitation | Exploit, Post | metasploit :8003 |
@@ -362,7 +372,7 @@ A **LangGraph-based autonomous agent** implementing the ReAct pattern. It progre
 | **Code Execution** | **kali_shell** | Full Kali Linux shell -- netcat, sqlmap, smbclient, msfvenom, searchsploit, and 30+ CLI tools | All | network_recon :8000 |
 | | **execute_code** | Write and run code files (Python, bash, Ruby, Perl, C, C++) -- no shell escaping | Exploit, Post | network_recon :8000 |
 
-<sub>All MCP tools run inside a Kali Linux sandbox container. Tools marked as dangerous require manual confirmation before execution. Stealth mode restricts active tools to passive-only or single-target operations.</sub>
+<sub>All MCP tools run inside a Kali Linux sandbox container. Tools marked as dangerous require manual confirmation before execution. Stealth mode restricts active tools to passive-only or single-target operations. **Note:** WPScan is licensed under the [WPScan Public Source License](https://github.com/wpscanteam/wpscan/blob/master/LICENSE) (not MIT). Free for pentesting assessments and personal use; commercial use may require a separate license from [wpscan.com](https://wpscan.com).</sub>
 
 ### AI Model Providers
 
@@ -411,6 +421,12 @@ Two-agent pipeline: a **Triage Agent** runs 9 hardcoded Cypher queries then uses
 An **LLM-powered Intent Router** classifies user requests into agent skills: CVE (MSF), SQL Injection, Credential Testing, Social Engineering, Availability Testing, or custom user-defined skills uploaded as Markdown files. Ready-to-use **[community skills](agentic/community-skills/)** are available for API testing, XSS, SQLi, and SSRF -- download the `.md` file and upload it via **Global Settings > Agent Skills** to activate it for your user. You can also [contribute your own](https://github.com/samugit83/redamon/wiki/Agent-Skills#share-your-skills-with-the-community) by opening a PR.
 
 > **[Wiki: Agent Skills](https://github.com/samugit83/redamon/wiki/Agent-Skills)** | **[Community Skills](agentic/community-skills/)**
+
+### Chat Skills
+
+**On-demand reference injection** via `/skill` command in the agent chat. Chat Skills are tactical reference docs -- tool playbooks, vulnerability guides, framework-specific notes -- that you inject into the agent's context exactly when you need them. Type `/skill ssrf` to load SSRF expertise, or click the skill picker button for a browsable list. 36 community-contributed skills ship with RedAmon covering vulnerabilities, tooling, scan modes, frameworks, technologies, and protocols. Unlike Agent Skills (which drive classification and phase-aware workflows), Chat Skills are supplementary context that persists until you change or remove them.
+
+> **[Wiki: Chat Skills](https://github.com/samugit83/redamon/wiki/Chat-Skills)** | **[Community Chat Skills](agentic/skills/)**
 
 ### GitHub Secret Hunter
 

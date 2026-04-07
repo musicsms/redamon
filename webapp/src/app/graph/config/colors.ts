@@ -46,6 +46,9 @@ export const NODE_COLORS: Record<string, string> = {
   TrufflehogRepository: '#475569', // Slate-600 - repository node
   TrufflehogFinding: '#8b5e3c',    // Muted bronze - secret finding (warm, distinct from GithubSecret purple)
 
+  // JS RECON SCANNER (Fuchsia - distinct from all other node families)
+  JsReconFinding: '#c026d3',       // Fuchsia-600 - JS analysis finding
+
   // EXTERNAL / OUT-OF-SCOPE (informational, not a target)
   ExternalDomain: '#8b8178',       // Warm stone gray
 

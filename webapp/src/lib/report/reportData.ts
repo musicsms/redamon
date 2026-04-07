@@ -86,6 +86,57 @@ export interface ExploitSuccess {
   cveIds: string[]
 }
 
+export interface TrufflehogFindingRecord {
+  detectorName: string
+  verified: boolean
+  redacted: string | null
+  repository: string | null
+  file: string | null
+  commit: string | null
+  line: number | null
+  link: string | null
+}
+
+export interface SecretRecord {
+  secretType: string
+  severity: string
+  source: string
+  sourceUrl: string | null
+  sample: string | null
+  validationStatus: string | null
+  confidence: string | null
+  keyType: string | null
+}
+
+export interface JsReconFindingRecord {
+  findingType: string
+  severity: string
+  confidence: string | null
+  title: string
+  detail: string | null
+  evidence: string | null
+  sourceUrl: string | null
+}
+
+export interface ThreatPulseRecord {
+  name: string
+  adversary: string | null
+  malwareFamilies: string[]
+  attackIds: string[]
+  tlp: string | null
+  targetedCountries: string[]
+  ipAddress: string | null
+}
+
+export interface MalwareRecord {
+  hash: string
+  hashType: string | null
+  fileType: string | null
+  fileName: string | null
+  source: string | null
+  ipAddress: string | null
+}
+
 export interface SubdomainMapping {
   subdomain: string
   ips: { address: string; version: string | null; isCdn: boolean; cdnName: string | null }[]
@@ -149,6 +200,41 @@ export interface ReportData {
     githubSecrets: { repos: number; secrets: number; sensitiveFiles: number }
   }
 
+  // TruffleHog
+  trufflehog: {
+    totalFindings: number
+    verifiedFindings: number
+    repositories: number
+    findings: TrufflehogFindingRecord[]
+  }
+
+  // Secrets (generic, from jsluice / js_recon / etc.)
+  secrets: {
+    total: number
+    bySeverity: { severity: string; count: number }[]
+    bySource: { source: string; count: number }[]
+    byType: { secretType: string; count: number }[]
+    findings: SecretRecord[]
+  }
+
+  // JS Recon
+  jsRecon: {
+    totalFindings: number
+    bySeverity: { severity: string; count: number }[]
+    byType: { findingType: string; count: number }[]
+    findings: JsReconFindingRecord[]
+  }
+
+  // OTX Threat Intelligence
+  otx: {
+    totalPulses: number
+    totalMalware: number
+    enrichedIps: number
+    adversaries: string[]
+    pulses: ThreatPulseRecord[]
+    malware: MalwareRecord[]
+  }
+
   // Attack Chains
   attackChains: {
     chains: AttackChainSummary[]
@@ -202,12 +288,20 @@ export async function gatherReportData(projectId: string): Promise<ReportData> {
     vulnData,
     cveIntelligence,
     attackChainData,
+    trufflehogData,
+    secretsData,
+    jsReconData,
+    otxData,
   ] = await Promise.all([
     withSession(s => queryGraphOverview(s, projectId)),
     withSession(s => queryAttackSurface(s, projectId)),
     withSession(s => queryVulnerabilities(s, projectId)),
     withSession(s => queryCveIntelligence(s, projectId)),
     withSession(s => queryAttackChains(s, projectId)),
+    withSession(s => queryTrufflehog(s, projectId)),
+    withSession(s => querySecrets(s, projectId)),
+    withSession(s => queryJsRecon(s, projectId)),
+    withSession(s => queryOtx(s, projectId)),
   ])
 
   // Compute metrics
@@ -269,8 +363,13 @@ export async function gatherReportData(projectId: string): Promise<ReportData> {
     const chainFindingsScore = attackChainData.topFindings.reduce((sum: number, f: { severity: string }) => sum + sevWeight(f.severity), 0)
     const cvesWithCapec = new Set(cveIntelligence.cveChains.filter((c: { capecId: string | null }) => c.capecId).map((c: { cveId: string }) => c.cveId)).size
     const capecScore = cvesWithCapec * 15
-    const secretsScore = cveIntelligence.githubSecrets.secrets * 60
+    const secretsScore = (cveIntelligence.githubSecrets.secrets + secretsData.total) * 60
     const sensitiveFilesScore = cveIntelligence.githubSecrets.sensitiveFiles * 30
+    const trufflehogScore = trufflehogData.verifiedFindings * 80 + (trufflehogData.totalFindings - trufflehogData.verifiedFindings) * 30
+    const jsReconScore = jsReconData.bySeverity
+      .filter((d: { severity: string; count: number }) => d.severity === 'critical' || d.severity === 'high')
+      .reduce((sum: number, d: { severity: string; count: number }) => sum + d.count, 0) * 40
+    const otxScore = otxData.totalPulses * 20 + otxData.totalMalware * 50
     const injectableScore = injectableParams * 25
     const expiredCertScore = graphOverview.certificateHealth.expired * 10
     // Missing security headers penalty
@@ -288,6 +387,7 @@ export async function gatherReportData(projectId: string): Promise<ReportData> {
       + chainExploitScore + chainFindingsScore + capecScore
       + secretsScore + sensitiveFilesScore + injectableScore
       + expiredCertScore + missingHeaderScore
+      + trufflehogScore + jsReconScore + otxScore
     const riskScore = Math.min(100, Math.round(15 * Math.log(rawRisk + 1)))
     const riskLabel: 'Critical' | 'High' | 'Medium' | 'Low' | 'Minimal' =
       riskScore >= 80 ? 'Critical' : riskScore >= 60 ? 'High'
@@ -301,6 +401,10 @@ export async function gatherReportData(projectId: string): Promise<ReportData> {
       attackSurface,
       vulnerabilities: vulnData,
       cveIntelligence,
+      trufflehog: trufflehogData,
+      secrets: secretsData,
+      jsRecon: jsReconData,
+      otx: otxData,
       attackChains: attackChainData,
       metrics: {
         riskScore,
@@ -319,7 +423,7 @@ export async function gatherReportData(projectId: string): Promise<ReportData> {
         exploitableCount: cveIntelligence.exploits.length + attackChainData.exploitSuccesses.length,
         cvssAverage: Math.round(cvssAverage * 10) / 10,
         attackSurfaceSize: graphOverview.endpointCoverage.endpoints + totalParams,
-        secretsExposed: cveIntelligence.githubSecrets.secrets + cveIntelligence.githubSecrets.sensitiveFiles,
+        secretsExposed: cveIntelligence.githubSecrets.secrets + cveIntelligence.githubSecrets.sensitiveFiles + secretsData.total + trufflehogData.totalFindings,
       },
     }
 }
@@ -745,5 +849,225 @@ async function queryAttackChains(session: any, pid: string) {
       targetHost: r.get('targetHost') as string | null,
     })),
     totalChainFindings: toNum(countRes.records[0]?.get('total')),
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function queryTrufflehog(session: any, pid: string) {
+  const summaryRes = await session.run(
+    `OPTIONAL MATCH (d:Domain {project_id: $pid})-[:HAS_TRUFFLEHOG_SCAN]->(ts:TrufflehogScan)
+     OPTIONAL MATCH (ts)-[:HAS_REPOSITORY]->(tr:TrufflehogRepository)
+     OPTIONAL MATCH (tr)-[:HAS_FINDING]->(tf:TrufflehogFinding)
+     RETURN count(DISTINCT tf) AS total,
+            count(DISTINCT CASE WHEN tf.verified = true THEN tf END) AS verified,
+            count(DISTINCT tr) AS repos`,
+    { pid }
+  )
+  const findingsRes = await session.run(
+    `MATCH (d:Domain {project_id: $pid})-[:HAS_TRUFFLEHOG_SCAN]->()-[:HAS_REPOSITORY]->(tr:TrufflehogRepository)-[:HAS_FINDING]->(tf:TrufflehogFinding)
+     RETURN tf.detector_name AS detectorName, tf.verified AS verified,
+            tf.redacted AS redacted, tr.name AS repository,
+            tf.file AS file, tf.commit AS commit,
+            tf.line AS line, tf.link AS link
+     ORDER BY CASE WHEN tf.verified = true THEN 0 ELSE 1 END, tf.detector_name
+     LIMIT 50`,
+    { pid }
+  )
+
+  const sumRec = summaryRes.records[0]
+  return {
+    totalFindings: sumRec ? toNum(sumRec.get('total')) : 0,
+    verifiedFindings: sumRec ? toNum(sumRec.get('verified')) : 0,
+    repositories: sumRec ? toNum(sumRec.get('repos')) : 0,
+    findings: findingsRes.records.map((r: any) => ({
+      detectorName: (r.get('detectorName') as string) || 'Unknown',
+      verified: r.get('verified') === true,
+      redacted: r.get('redacted') as string | null,
+      repository: r.get('repository') as string | null,
+      file: r.get('file') as string | null,
+      commit: r.get('commit') as string | null,
+      line: r.get('line') != null ? toNum(r.get('line')) : null,
+      link: r.get('link') as string | null,
+    })),
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function querySecrets(session: any, pid: string) {
+  const totalRes = await session.run(
+    `MATCH (s:Secret {project_id: $pid})
+     RETURN count(s) AS total`,
+    { pid }
+  )
+  const bySevRes = await session.run(
+    `MATCH (s:Secret {project_id: $pid})
+     RETURN s.severity AS severity, count(s) AS count ORDER BY count DESC`,
+    { pid }
+  )
+  const bySrcRes = await session.run(
+    `MATCH (s:Secret {project_id: $pid})
+     RETURN s.source AS source, count(s) AS count ORDER BY count DESC`,
+    { pid }
+  )
+  const byTypeRes = await session.run(
+    `MATCH (s:Secret {project_id: $pid})
+     RETURN s.secret_type AS secretType, count(s) AS count ORDER BY count DESC LIMIT 20`,
+    { pid }
+  )
+  const findingsRes = await session.run(
+    `MATCH (s:Secret {project_id: $pid})
+     RETURN s.secret_type AS secretType, s.severity AS severity,
+            s.source AS source, s.source_url AS sourceUrl,
+            s.sample AS sample, s.validation_status AS validationStatus,
+            s.confidence AS confidence, s.key_type AS keyType
+     ORDER BY CASE s.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
+     LIMIT 50`,
+    { pid }
+  )
+
+  return {
+    total: toNum(totalRes.records[0]?.get('total')),
+    bySeverity: bySevRes.records.map((r: any) => ({
+      severity: (r.get('severity') as string) || 'unknown',
+      count: toNum(r.get('count')),
+    })),
+    bySource: bySrcRes.records.map((r: any) => ({
+      source: (r.get('source') as string) || 'unknown',
+      count: toNum(r.get('count')),
+    })),
+    byType: byTypeRes.records.map((r: any) => ({
+      secretType: (r.get('secretType') as string) || 'unknown',
+      count: toNum(r.get('count')),
+    })),
+    findings: findingsRes.records.map((r: any) => ({
+      secretType: (r.get('secretType') as string) || 'Unknown',
+      severity: (r.get('severity') as string) || 'unknown',
+      source: (r.get('source') as string) || 'unknown',
+      sourceUrl: r.get('sourceUrl') as string | null,
+      sample: r.get('sample') as string | null,
+      validationStatus: r.get('validationStatus') as string | null,
+      confidence: r.get('confidence') as string | null,
+      keyType: r.get('keyType') as string | null,
+    })),
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function queryJsRecon(session: any, pid: string) {
+  const bySevRes = await session.run(
+    `MATCH (jf:JsReconFinding {project_id: $pid})
+     RETURN jf.severity AS severity, count(jf) AS count ORDER BY count DESC`,
+    { pid }
+  )
+  const byTypeRes = await session.run(
+    `MATCH (jf:JsReconFinding {project_id: $pid})
+     RETURN jf.finding_type AS findingType, count(jf) AS count ORDER BY count DESC`,
+    { pid }
+  )
+  const findingsRes = await session.run(
+    `MATCH (jf:JsReconFinding {project_id: $pid})
+     RETURN jf.finding_type AS findingType, jf.severity AS severity,
+            jf.confidence AS confidence, jf.title AS title,
+            jf.detail AS detail, jf.evidence AS evidence,
+            jf.source_url AS sourceUrl
+     ORDER BY CASE jf.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
+     LIMIT 50`,
+    { pid }
+  )
+
+  const totalFindings = bySevRes.records.reduce((s: number, r: any) => s + toNum(r.get('count')), 0)
+
+  return {
+    totalFindings,
+    bySeverity: bySevRes.records.map((r: any) => ({
+      severity: (r.get('severity') as string) || 'unknown',
+      count: toNum(r.get('count')),
+    })),
+    byType: byTypeRes.records.map((r: any) => ({
+      findingType: (r.get('findingType') as string) || 'unknown',
+      count: toNum(r.get('count')),
+    })),
+    findings: findingsRes.records.map((r: any) => ({
+      findingType: (r.get('findingType') as string) || 'unknown',
+      severity: (r.get('severity') as string) || 'unknown',
+      confidence: r.get('confidence') as string | null,
+      title: (r.get('title') as string) || 'Untitled',
+      detail: r.get('detail') as string | null,
+      evidence: r.get('evidence') as string | null,
+      sourceUrl: r.get('sourceUrl') as string | null,
+    })),
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function queryOtx(session: any, pid: string) {
+  const pulseRes = await session.run(
+    `MATCH (ip:IP {project_id: $pid})-[:APPEARS_IN_PULSE]->(tp:ThreatPulse)
+     RETURN tp.name AS name, tp.adversary AS adversary,
+            tp.malware_families AS malwareFamilies,
+            tp.attack_ids AS attackIds, tp.tlp AS tlp,
+            tp.targeted_countries AS targetedCountries,
+            ip.address AS indicator
+     UNION
+     MATCH (d:Domain {project_id: $pid})-[:APPEARS_IN_PULSE]->(tp:ThreatPulse)
+     RETURN tp.name AS name, tp.adversary AS adversary,
+            tp.malware_families AS malwareFamilies,
+            tp.attack_ids AS attackIds, tp.tlp AS tlp,
+            tp.targeted_countries AS targetedCountries,
+            d.domain AS indicator
+     ORDER BY name
+     LIMIT 30`,
+    { pid }
+  )
+  const malwareRes = await session.run(
+    `MATCH (ip:IP {project_id: $pid})-[:ASSOCIATED_WITH_MALWARE]->(m:Malware)
+     RETURN m.hash AS hash, m.hash_type AS hashType,
+            m.file_type AS fileType, m.file_name AS fileName,
+            m.source AS source, ip.address AS indicator
+     UNION
+     MATCH (d:Domain {project_id: $pid})-[:ASSOCIATED_WITH_MALWARE]->(m:Malware)
+     RETURN m.hash AS hash, m.hash_type AS hashType,
+            m.file_type AS fileType, m.file_name AS fileName,
+            m.source AS source, d.domain AS indicator
+     LIMIT 30`,
+    { pid }
+  )
+  const enrichedRes = await session.run(
+    `MATCH (ip:IP {project_id: $pid})
+     WHERE ip.otx_enriched = true
+     RETURN count(ip) AS enrichedIps`,
+    { pid }
+  )
+
+  const pulses = pulseRes.records.map((r: any) => ({
+    name: (r.get('name') as string) || 'Unknown',
+    adversary: r.get('adversary') as string | null,
+    malwareFamilies: (r.get('malwareFamilies') as string[]) || [],
+    attackIds: (r.get('attackIds') as string[]) || [],
+    tlp: r.get('tlp') as string | null,
+    targetedCountries: (r.get('targetedCountries') as string[]) || [],
+    ipAddress: r.get('indicator') as string | null,
+  }))
+
+  const adversaryList: string[] = []
+  for (const p of pulses) {
+    if (p.adversary && !adversaryList.includes(p.adversary)) adversaryList.push(p.adversary)
+  }
+  const adversaries = adversaryList
+
+  return {
+    totalPulses: pulses.length,
+    totalMalware: malwareRes.records.length,
+    enrichedIps: toNum(enrichedRes.records[0]?.get('enrichedIps')),
+    adversaries,
+    pulses,
+    malware: malwareRes.records.map((r: any) => ({
+      hash: (r.get('hash') as string) || '',
+      hashType: r.get('hashType') as string | null,
+      fileType: r.get('fileType') as string | null,
+      fileName: r.get('fileName') as string | null,
+      source: r.get('source') as string | null,
+      ipAddress: r.get('indicator') as string | null,
+    })),
   }
 }

@@ -64,7 +64,11 @@ Section guidelines:
 
   ATTACK SURFACE METRICS: Subdomains (active vs total), IPs (direct vs CDN-fronted), endpoints, parameters, open ports and services. Total graph nodes for scope context.
 
-  SECRETS & DATA EXPOSURE: GitHub secrets or sensitive files found: detail count and implications. If none, state that no credential exposure was detected.
+  SECRETS & DATA EXPOSURE: GitHub secrets or sensitive files found: detail count and implications. TruffleHog credential findings in git history: total findings, verified vs unverified, detector types. Generic secret detection findings (from jsluice, JS Recon): count by severity, types (API keys, tokens, credentials), validation status. If none, state that no credential exposure was detected.
+
+  JAVASCRIPT RECONNAISSANCE: JS Recon findings covering dependency confusion risks, source map exposure, DOM sinks, developer comments, and framework detection. Detail counts by severity and finding type. Highlight critical/high findings.
+
+  THREAT INTELLIGENCE: OTX threat intelligence associations: threat pulses linked to infrastructure IPs, known adversaries/APT groups, malware samples, MITRE ATT&CK techniques. Detail the number of enriched IPs and what the threat context means for risk.
 
   Discuss how vulnerabilities connect from technology to CVE to CWE to CAPEC, showing the progression from vulnerability to exploitable attack pattern. Address infrastructure risk: are servers directly exposed or CDN-fronted?
 
@@ -78,11 +82,11 @@ Section guidelines:
 
   TIER 2 — CRITICAL/HIGH CVEs (fix within 1 week): Go through EVERY critical and high severity CVE from the cveChains data. For EACH CVE, state: the CVE ID, the affected technology and version, the CVSS score, the CWE weakness category, the CAPEC attack pattern if available, what an attacker could achieve, and the specific remediation (upgrade to which version, apply which patch, configuration change). Group related CVEs affecting the same technology together but still address each individually.
 
-  TIER 3 — MEDIUM FINDINGS & MISCONFIGURATIONS (fix within 1 month): Cover ALL medium severity findings — missing security headers, missing email authentication (SPF/DMARC/DKIM), certificate issues, information disclosure, directory listings, etc. For each, explain the risk and provide specific remediation instructions.
+  TIER 3 — MEDIUM FINDINGS & MISCONFIGURATIONS (fix within 1 month): Cover ALL medium severity findings — missing security headers, missing email authentication (SPF/DMARC/DKIM), certificate issues, information disclosure, directory listings, JS Recon findings (dependency confusion, source map exposure, DOM sinks), unverified TruffleHog credentials, etc. For each, explain the risk and provide specific remediation instructions.
 
   TIER 4 — LOW/INFORMATIONAL & HARDENING (fix within 1 quarter): Address remaining low severity items, outdated but not critically vulnerable software, security header improvements, and general hardening recommendations.
 
-  TIER 5 — STRATEGIC RECOMMENDATIONS: Long-term program improvements — vulnerability management program, patch management cadence, WAF deployment, security monitoring, regular penetration testing schedule, security header policy, certificate lifecycle management.
+  TIER 5 — STRATEGIC RECOMMENDATIONS: Long-term program improvements — vulnerability management program, patch management cadence, WAF deployment, security monitoring, regular penetration testing schedule, security header policy, certificate lifecycle management, secret rotation policies, JavaScript supply chain security, threat intelligence integration.
 
   The output must be LONG and DETAILED — every CVE must be mentioned by ID, every finding must be addressed with specific remediation steps. Do not summarize or skip items. If there are 20 CVEs, discuss all 20. If there are 5 findings, discuss all 5. This section should be the longest section in the entire report. Write in flowing prose paragraphs, not bullet points."""
 
@@ -158,6 +162,10 @@ def _condense_for_llm(data: dict) -> dict:
     cve_intel = data.get("cveIntelligence", {})
     chains = data.get("attackChains", {})
     remediations = data.get("remediations", [])
+    trufflehog = data.get("trufflehog", {})
+    secrets = data.get("secrets", {})
+    js_recon = data.get("jsRecon", {})
+    otx = data.get("otx", {})
 
     # ALL findings for comprehensive triage
     all_findings = []
@@ -269,6 +277,36 @@ def _condense_for_llm(data: dict) -> dict:
         "portsOpen": ports_detail,
         "securityHeaders": security_headers,
         "parameterAnalysis": param_analysis,
+        # TruffleHog
+        "trufflehogTotalFindings": trufflehog.get("totalFindings", 0),
+        "trufflehogVerifiedFindings": trufflehog.get("verifiedFindings", 0),
+        "trufflehogRepositories": trufflehog.get("repositories", 0),
+        "trufflehogFindings": [
+            {"detectorName": f.get("detectorName"), "verified": f.get("verified"), "repository": f.get("repository"), "file": f.get("file")}
+            for f in trufflehog.get("findings", [])[:20]
+        ],
+        # Secrets (generic)
+        "secretsTotal": secrets.get("total", 0),
+        "secretsBySeverity": secrets.get("bySeverity", []),
+        "secretsBySource": secrets.get("bySource", []),
+        "secretsByType": secrets.get("byType", []),
+        # JS Recon
+        "jsReconTotalFindings": js_recon.get("totalFindings", 0),
+        "jsReconBySeverity": js_recon.get("bySeverity", []),
+        "jsReconByType": js_recon.get("byType", []),
+        "jsReconFindings": [
+            {"title": f.get("title"), "severity": f.get("severity"), "findingType": f.get("findingType"), "confidence": f.get("confidence")}
+            for f in js_recon.get("findings", [])[:20]
+        ],
+        # OTX Threat Intelligence
+        "otxTotalPulses": otx.get("totalPulses", 0),
+        "otxTotalMalware": otx.get("totalMalware", 0),
+        "otxEnrichedIps": otx.get("enrichedIps", 0),
+        "otxAdversaries": otx.get("adversaries", []),
+        "otxPulses": [
+            {"name": p.get("name"), "adversary": p.get("adversary"), "malwareFamilies": p.get("malwareFamilies", []), "attackIds": p.get("attackIds", [])}
+            for p in otx.get("pulses", [])[:15]
+        ],
         # RoE context if available
         "engagementType": project.get("roeEngagementType", ""),
         "clientName": project.get("roeClientName", ""),

@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Plus, Pencil, Trash2, Loader2, Eye, EyeOff, Upload, Download, Swords, RotateCw, Copy, Check, ExternalLink, ChevronDown, ChevronRight, Info } from 'lucide-react'
+import { Plus, Pencil, Trash2, Loader2, Eye, EyeOff, Upload, Download, Swords, RotateCw, Copy, Check, ExternalLink, ChevronDown, ChevronRight, Info, BookOpen } from 'lucide-react'
 import { useProject } from '@/providers/ProjectProvider'
 import { useVersionCheck } from '@/hooks/useVersionCheck'
 import { LlmProviderForm } from '@/components/settings/LlmProviderForm'
 import type { ProviderData } from '@/components/settings/LlmProviderForm'
 import { PROVIDER_TYPES } from '@/lib/llmProviderPresets'
 import { Modal } from '@/components/ui/Modal/Modal'
+import { useAlertModal, useToast } from '@/components/ui'
 import styles from '@/components/settings/Settings.module.css'
 
 interface UserSettings {
@@ -35,6 +36,7 @@ interface UserSettings {
   googleApiCx: string
   onypheApiKey: string
   driftnetApiKey: string
+  wpscanApiToken: string
   ngrokAuthtoken: string
   chiselServerUrl: string
   chiselAuth: string
@@ -64,6 +66,7 @@ const EMPTY_SETTINGS: UserSettings = {
   googleApiCx: '',
   onypheApiKey: '',
   driftnetApiKey: '',
+  wpscanApiToken: '',
   ngrokAuthtoken: '',
   chiselServerUrl: '',
   chiselAuth: '',
@@ -94,6 +97,7 @@ const TOOL_NAME_MAP: Record<string, string> = {
   hunterHowApiKey: 'hunterhow',
   onypheApiKey: 'onyphe',
   driftnetApiKey: 'driftnet',
+  wpscanApiToken: 'wpscan',
 }
 
 function getProviderIcon(providerType: string): string {
@@ -106,6 +110,8 @@ function getProviderLabel(providerType: string): string {
 
 export default function SettingsPage() {
   const { userId } = useProject()
+  const { alertError, alert: showAlert, confirm: showConfirm } = useAlertModal()
+  const toast = useToast()
 
   // LLM Providers
   const [providers, setProviders] = useState<ProviderData[]>([])
@@ -139,6 +145,25 @@ export default function SettingsPage() {
   const [editingSkillId, setEditingSkillId] = useState('')
   const [editingSkillDescription, setEditingSkillDescription] = useState('')
   const [editDescSaving, setEditDescSaving] = useState(false)
+  // Import from Community (Agent Skills)
+  const [importingAgentSkills, setImportingAgentSkills] = useState(false)
+
+  // Chat Skills
+  const [chatSkills, setChatSkills] = useState<{ id: string; name: string; description?: string | null; category?: string | null; createdAt: string }[]>([])
+  const [chatSkillsLoading, setChatSkillsLoading] = useState(true)
+  const [chatSkillNameModal, setChatSkillNameModal] = useState(false)
+  const [pendingChatSkillContent, setPendingChatSkillContent] = useState('')
+  const [pendingChatSkillName, setPendingChatSkillName] = useState('')
+  const [pendingChatSkillDescription, setPendingChatSkillDescription] = useState('')
+  const [pendingChatSkillCategory, setPendingChatSkillCategory] = useState('general')
+  const [chatSkillUploading, setChatSkillUploading] = useState(false)
+  // Chat skill edit description modal
+  const [editChatDescModal, setEditChatDescModal] = useState(false)
+  const [editingChatSkillId, setEditingChatSkillId] = useState('')
+  const [editingChatSkillDescription, setEditingChatSkillDescription] = useState('')
+  const [editChatDescSaving, setEditChatDescSaving] = useState(false)
+  // Import from Community (Chat Skills)
+  const [importingChatSkills, setImportingChatSkills] = useState(false)
   // Fetch attack skills
   const fetchSkills = useCallback(async () => {
     if (!userId) return
@@ -183,12 +208,14 @@ export default function SettingsPage() {
         setPendingSkillContent('')
         setPendingSkillName('')
         setPendingSkillDescription('')
+        toast.success('Attack skill uploaded')
       } else {
         const err = await resp.json()
-        alert(err.error || 'Failed to upload skill')
+        alertError(err.error || 'Failed to upload skill')
       }
     } catch (err) {
       console.error('Failed to upload skill:', err)
+      toast.error('Failed to upload skill')
     } finally {
       setSkillUploading(false)
     }
@@ -216,12 +243,14 @@ export default function SettingsPage() {
 
   // Delete skill
   const deleteSkill = useCallback(async (skillId: string) => {
-    if (!userId || !confirm('Delete this skill? It will be removed from all projects.')) return
+    if (!userId || !(await showConfirm('Delete this skill? It will be removed from all projects.'))) return
     try {
       await fetch(`/api/users/${userId}/attack-skills/${skillId}`, { method: 'DELETE' })
       fetchSkills()
+      toast.success('Attack skill deleted')
     } catch (err) {
       console.error('Failed to delete skill:', err)
+      toast.error('Failed to delete skill')
     }
   }, [userId, fetchSkills])
 
@@ -256,16 +285,198 @@ export default function SettingsPage() {
         setEditDescModal(false)
         setEditingSkillId('')
         setEditingSkillDescription('')
+        toast.success('Skill description updated')
       } else {
         const err = await resp.json()
-        alert(err.error || 'Failed to update description')
+        alertError(err.error || 'Failed to update description')
       }
     } catch (err) {
       console.error('Failed to update skill description:', err)
+      toast.error('Failed to update description')
     } finally {
       setEditDescSaving(false)
     }
   }, [userId, editingSkillId, editingSkillDescription, fetchSkills])
+
+  // Import community agent skills
+  const importCommunityAgentSkills = useCallback(async () => {
+    if (!userId) return
+    setImportingAgentSkills(true)
+    try {
+      const resp = await fetch(`/api/users/${userId}/attack-skills/import-community`, { method: 'POST' })
+      const data = await resp.json()
+      if (resp.ok) {
+        fetchSkills()
+        showAlert(data.message || `Imported ${data.imported ?? 0} community skill(s).`)
+      } else {
+        alertError(data.error || 'Failed to import community skills')
+      }
+    } catch (err) {
+      console.error('Failed to import community skills:', err)
+    } finally {
+      setImportingAgentSkills(false)
+    }
+  }, [userId, fetchSkills])
+
+  // Fetch chat skills
+  const fetchChatSkills = useCallback(async () => {
+    if (!userId) return
+    try {
+      const resp = await fetch(`/api/users/${userId}/chat-skills`)
+      if (resp.ok) setChatSkills(await resp.json())
+    } catch (err) {
+      console.error('Failed to fetch chat skills:', err)
+    } finally {
+      setChatSkillsLoading(false)
+    }
+  }, [userId])
+
+  // Upload chat skill from .md file
+  const handleChatSkillUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !userId) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      setPendingChatSkillContent(reader.result as string)
+      setPendingChatSkillName(file.name.replace(/\.md$/i, ''))
+      setPendingChatSkillCategory('general')
+      setChatSkillNameModal(true)
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }, [userId])
+
+  // Confirm chat skill upload
+  const confirmChatSkillUpload = useCallback(async () => {
+    if (!userId || !pendingChatSkillName.trim()) return
+    setChatSkillUploading(true)
+    try {
+      const resp = await fetch(`/api/users/${userId}/chat-skills`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: pendingChatSkillName.trim(),
+          description: pendingChatSkillDescription.trim() || null,
+          category: pendingChatSkillCategory,
+          content: pendingChatSkillContent,
+        }),
+      })
+      if (resp.ok) {
+        fetchChatSkills()
+        setChatSkillNameModal(false)
+        setPendingChatSkillContent('')
+        setPendingChatSkillName('')
+        setPendingChatSkillDescription('')
+        setPendingChatSkillCategory('general')
+        toast.success('Chat skill uploaded')
+      } else {
+        const err = await resp.json()
+        alertError(err.error || 'Failed to upload chat skill')
+      }
+    } catch (err) {
+      console.error('Failed to upload chat skill:', err)
+      toast.error('Failed to upload chat skill')
+    } finally {
+      setChatSkillUploading(false)
+    }
+  }, [userId, pendingChatSkillName, pendingChatSkillDescription, pendingChatSkillCategory, pendingChatSkillContent, fetchChatSkills])
+
+  // Download chat skill as .md
+  const downloadChatSkill = useCallback(async (skillId: string, skillName: string) => {
+    if (!userId) return
+    try {
+      const resp = await fetch(`/api/users/${userId}/chat-skills/${skillId}`)
+      if (resp.ok) {
+        const skill = await resp.json()
+        const blob = new Blob([skill.content], { type: 'text/markdown' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${skillName}.md`
+        a.click()
+        URL.revokeObjectURL(url)
+      }
+    } catch (err) {
+      console.error('Failed to download chat skill:', err)
+    }
+  }, [userId])
+
+  // Delete chat skill
+  const deleteChatSkill = useCallback(async (skillId: string) => {
+    if (!userId || !(await showConfirm('Delete this chat skill?'))) return
+    try {
+      await fetch(`/api/users/${userId}/chat-skills/${skillId}`, { method: 'DELETE' })
+      fetchChatSkills()
+      toast.success('Chat skill deleted')
+    } catch (err) {
+      console.error('Failed to delete chat skill:', err)
+      toast.error('Failed to delete chat skill')
+    }
+  }, [userId, fetchChatSkills])
+
+  // Open chat skill edit description modal
+  const openEditChatDescription = useCallback(async (skillId: string) => {
+    if (!userId) return
+    try {
+      const resp = await fetch(`/api/users/${userId}/chat-skills/${skillId}`)
+      if (resp.ok) {
+        const skill = await resp.json()
+        setEditingChatSkillId(skillId)
+        setEditingChatSkillDescription(skill.description || '')
+        setEditChatDescModal(true)
+      }
+    } catch (err) {
+      console.error('Failed to fetch chat skill:', err)
+    }
+  }, [userId])
+
+  // Save edited chat skill description
+  const saveEditChatDescription = useCallback(async () => {
+    if (!userId || !editingChatSkillId) return
+    setEditChatDescSaving(true)
+    try {
+      const resp = await fetch(`/api/users/${userId}/chat-skills/${editingChatSkillId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: editingChatSkillDescription.trim() || null }),
+      })
+      if (resp.ok) {
+        fetchChatSkills()
+        setEditChatDescModal(false)
+        setEditingChatSkillId('')
+        setEditingChatSkillDescription('')
+        toast.success('Chat skill description updated')
+      } else {
+        const err = await resp.json()
+        alertError(err.error || 'Failed to update description')
+      }
+    } catch (err) {
+      console.error('Failed to update chat skill description:', err)
+      toast.error('Failed to update description')
+    } finally {
+      setEditChatDescSaving(false)
+    }
+  }, [userId, editingChatSkillId, editingChatSkillDescription, fetchChatSkills])
+
+  // Import community chat skills
+  const importCommunityChatSkills = useCallback(async () => {
+    if (!userId) return
+    setImportingChatSkills(true)
+    try {
+      const resp = await fetch(`/api/users/${userId}/chat-skills/import-community`, { method: 'POST' })
+      const data = await resp.json()
+      if (resp.ok) {
+        fetchChatSkills()
+        showAlert(data.message || `Imported ${data.imported ?? 0} community chat skill(s).`)
+      } else {
+        alertError(data.error || 'Failed to import community chat skills')
+      }
+    } catch (err) {
+      console.error('Failed to import community chat skills:', err)
+    } finally {
+      setImportingChatSkills(false)
+    }
+  }, [userId, fetchChatSkills])
 
   // Fetch providers
   const fetchProviders = useCallback(async () => {
@@ -311,6 +522,7 @@ export default function SettingsPage() {
           googleApiCx: data.googleApiCx || '',
           onypheApiKey: data.onypheApiKey || '',
           driftnetApiKey: data.driftnetApiKey || '',
+          wpscanApiToken: data.wpscanApiToken || '',
           ngrokAuthtoken: data.ngrokAuthtoken || '',
           chiselServerUrl: data.chiselServerUrl || '',
           chiselAuth: data.chiselAuth || '',
@@ -330,16 +542,19 @@ export default function SettingsPage() {
     fetchProviders()
     fetchSettings()
     fetchSkills()
-  }, [fetchProviders, fetchSettings, fetchSkills])
+    fetchChatSkills()
+  }, [fetchProviders, fetchSettings, fetchSkills, fetchChatSkills])
 
   // Delete provider
   const deleteProvider = useCallback(async (providerId: string) => {
-    if (!userId || !confirm('Delete this provider? Models from it will no longer be available.')) return
+    if (!userId || !(await showConfirm('Delete this provider? Models from it will no longer be available.'))) return
     try {
       await fetch(`/api/users/${userId}/llm-providers/${providerId}`, { method: 'DELETE' })
       fetchProviders()
+      toast.success('Provider deleted')
     } catch (err) {
       console.error('Failed to delete provider:', err)
+      toast.error('Failed to delete provider')
     }
   }, [userId, fetchProviders])
 
@@ -398,6 +613,7 @@ export default function SettingsPage() {
           googleApiCx: data.googleApiCx || '',
           onypheApiKey: data.onypheApiKey || '',
           driftnetApiKey: data.driftnetApiKey || '',
+          wpscanApiToken: data.wpscanApiToken || '',
           ngrokAuthtoken: data.ngrokAuthtoken || '',
           chiselServerUrl: data.chiselServerUrl || '',
           chiselAuth: data.chiselAuth || '',
@@ -406,9 +622,11 @@ export default function SettingsPage() {
           setRotationConfigs(data.rotationConfigs)
         }
         setSettingsDirty(false)
+        toast.success('Settings saved')
       }
     } catch (err) {
       console.error('Failed to save settings:', err)
+      toast.error('Failed to save settings')
     } finally {
       setSettingsSaving(false)
     }
@@ -484,7 +702,7 @@ export default function SettingsPage() {
   }, [rotationModal, closeRotationModal])
 
   const searchParams = useSearchParams()
-  const validTabs = ['providers', 'skills', 'keys', 'system']
+  const validTabs = ['providers', 'skills', 'chat-skills', 'keys', 'system']
   const initialTab = searchParams.get('tab') || 'providers'
   const [activeTab, setActiveTab] = useState(validTabs.includes(initialTab) ? initialTab : 'providers')
 
@@ -510,6 +728,9 @@ export default function SettingsPage() {
         </button>
         <button className={`${styles.tab} ${activeTab === 'skills' ? styles.tabActive : ''}`} onClick={() => setActiveTab('skills')}>
           <Swords size={14} /> Agent Skills
+        </button>
+        <button className={`${styles.tab} ${activeTab === 'chat-skills' ? styles.tabActive : ''}`} onClick={() => setActiveTab('chat-skills')}>
+          <BookOpen size={14} /> Chat Skills
         </button>
         <button className={`${styles.tab} ${activeTab === 'keys' ? styles.tabActive : ''}`} onClick={() => setActiveTab('keys')}>
           API Keys & Tunneling
@@ -587,15 +808,25 @@ export default function SettingsPage() {
       {activeTab === 'skills' && <div className={styles.section}>
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle}><Swords size={16} /> Agent Skills</h2>
-          <label className="primaryButton" style={{ cursor: 'pointer' }}>
-            <Upload size={14} /> Upload Skill
-            <input
-              type="file"
-              accept=".md"
-              style={{ display: 'none' }}
-              onChange={handleSkillUpload}
-            />
-          </label>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              className="secondaryButton"
+              onClick={importCommunityAgentSkills}
+              disabled={importingAgentSkills}
+            >
+              {importingAgentSkills ? <Loader2 size={14} className={styles.spin} /> : <Download size={14} />}
+              Import from Community
+            </button>
+            <label className="primaryButton" style={{ cursor: 'pointer' }}>
+              <Upload size={14} /> Upload Skill
+              <input
+                type="file"
+                accept=".md"
+                style={{ display: 'none' }}
+                onChange={handleSkillUpload}
+              />
+            </label>
+          </div>
         </div>
         <p className={styles.sectionHint}>
           Upload .md files defining custom attack skill workflows. Skills become available as toggles in all project settings.
@@ -628,6 +859,86 @@ export default function SettingsPage() {
                     <Download size={14} />
                   </button>
                   <button className="iconButton" title="Delete" onClick={() => deleteSkill(skill.id)}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>}
+
+      {/* Tab: Chat Skills */}
+      {activeTab === 'chat-skills' && <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h2 className={styles.sectionTitle}><BookOpen size={16} /> Chat Skills</h2>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              className="secondaryButton"
+              onClick={importCommunityChatSkills}
+              disabled={importingChatSkills}
+            >
+              {importingChatSkills ? <Loader2 size={14} className={styles.spin} /> : <Download size={14} />}
+              Import from Community
+            </button>
+            <label className="primaryButton" style={{ cursor: 'pointer' }}>
+              <Upload size={14} /> Upload Skill (.md)
+              <input
+                type="file"
+                accept=".md"
+                style={{ display: 'none' }}
+                onChange={handleChatSkillUpload}
+              />
+            </label>
+          </div>
+        </div>
+        <p className={styles.sectionHint}>
+          Upload and manage on-demand reference skills for the AI agent chat. Unlike Agent Skills (which drive attack classification and phase-aware workflows), Chat Skills are tactical reference docs that you inject into the agent&apos;s context on the fly using <code>/skill &lt;name&gt;</code> in the chat.
+        </p>
+
+        {chatSkillsLoading ? (
+          <div className={styles.emptyState}><Loader2 size={16} className={styles.spin} /> Loading...</div>
+        ) : chatSkills.length === 0 ? (
+          <div className={styles.emptyState}>No Chat Skills yet. Click Import from Community to add ready-to-use reference skills, or upload your own .md files.</div>
+        ) : (
+          <div className={styles.providerList}>
+            {chatSkills.map(skill => (
+              <div key={skill.id} className={styles.providerCard}>
+                <span className={styles.providerIcon}><BookOpen size={16} /></span>
+                <div className={styles.providerInfo}>
+                  <div className={styles.providerName}>
+                    {skill.name}
+                    {skill.category && (
+                      <span style={{
+                        marginLeft: '8px',
+                        fontSize: '10px',
+                        fontWeight: 500,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: 'var(--bg-tertiary)',
+                        color: 'var(--text-secondary)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.03em',
+                      }}>
+                        {skill.category}
+                      </span>
+                    )}
+                  </div>
+                  <div className={styles.providerMeta}>
+                    {skill.description || <span style={{ opacity: 0.5, fontStyle: 'italic' }}>No description</span>}
+                  </div>
+                  <div className={styles.providerMeta}>
+                    Uploaded {new Date(skill.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+                <div className={styles.providerActions}>
+                  <button className="iconButton" title="Edit description" onClick={() => openEditChatDescription(skill.id)}>
+                    <Pencil size={14} />
+                  </button>
+                  <button className="iconButton" title="Download" onClick={() => downloadChatSkill(skill.id, skill.name)}>
+                    <Download size={14} />
+                  </button>
+                  <button className="iconButton" title="Delete" onClick={() => deleteChatSkill(skill.id)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -693,6 +1004,18 @@ export default function SettingsPage() {
               rotationInfo={rotationConfigs.serp || null}
             />
             <SecretField
+              label="WPScan API Token"
+              hint="Enriches execute_wpscan results with vulnerability data from the WPScan database. Free: 25 requests/day"
+              signupUrl="https://wpscan.com/register"
+              badges={['AI Agent']}
+              value={settings.wpscanApiToken}
+              visible={!!visibleFields.wpscanApiToken}
+              onToggle={() => toggleFieldVisibility('wpscanApiToken')}
+              onChange={v => updateSetting('wpscanApiToken', v)}
+              onConfigureRotation={() => openRotationModal('wpscanApiToken')}
+              rotationInfo={rotationConfigs.wpscan || null}
+            />
+            <SecretField
               label="NVD API Key"
               hint="NIST NVD API key — increases CVE lookup rate limit from 5 to 120 requests/30s"
               signupUrl="https://nvd.nist.gov/developers/request-an-api-key"
@@ -748,6 +1071,16 @@ export default function SettingsPage() {
               visible={!!visibleFields.censysOrgId}
               onToggle={() => toggleFieldVisibility('censysOrgId')}
               onChange={v => updateSetting('censysOrgId', v)}
+            />
+            <SecretField
+              label="Censys Personal API Token"
+              hint="Personal Access Token from your Censys account — alternative to API ID + Secret. Takes precedence when both are set."
+              signupUrl="https://accounts.censys.io/settings/personal-access-tokens"
+              badges={['AI Agent', 'Recon Pipeline']}
+              value={settings.censysApiToken}
+              visible={!!visibleFields.censysApiToken}
+              onToggle={() => toggleFieldVisibility('censysApiToken')}
+              onChange={v => updateSetting('censysApiToken', v)}
             />
             <SecretField
               label="FOFA API Key"
@@ -1073,6 +1406,128 @@ export default function SettingsPage() {
           />
           <span className="formHint">
             Helps the agent understand when to use this skill. Without a description, the first 500 characters of the markdown are used instead &mdash; a good description improves classification accuracy.
+          </span>
+        </div>
+      </Modal>
+
+      {/* Chat Skill upload modal */}
+      <Modal
+        isOpen={chatSkillNameModal}
+        onClose={() => { setChatSkillNameModal(false); setPendingChatSkillContent(''); setPendingChatSkillName(''); setPendingChatSkillDescription(''); setPendingChatSkillCategory('general') }}
+        title="Upload Chat Skill"
+        size="small"
+        footer={
+          <>
+            <button
+              className="secondaryButton"
+              onClick={() => { setChatSkillNameModal(false); setPendingChatSkillContent(''); setPendingChatSkillName(''); setPendingChatSkillDescription(''); setPendingChatSkillCategory('general') }}
+            >
+              Cancel
+            </button>
+            <button
+              className="primaryButton"
+              disabled={!pendingChatSkillName.trim() || chatSkillUploading}
+              onClick={confirmChatSkillUpload}
+            >
+              {chatSkillUploading ? <Loader2 size={14} className={styles.spin} /> : <Upload size={14} />}
+              Upload
+            </button>
+          </>
+        }
+      >
+        <div className="formGroup">
+          <label className="formLabel">Skill Name</label>
+          <input
+            className="textInput"
+            type="text"
+            value={pendingChatSkillName}
+            onChange={(e) => setPendingChatSkillName(e.target.value)}
+            placeholder="e.g. OWASP Top 10 Reference"
+            autoFocus
+          />
+        </div>
+        <div className="formGroup" style={{ marginTop: '12px' }}>
+          <label className="formLabel">Description</label>
+          <textarea
+            className="textInput"
+            rows={3}
+            value={pendingChatSkillDescription}
+            onChange={(e) => setPendingChatSkillDescription(e.target.value)}
+            placeholder="e.g. Quick reference for OWASP Top 10 vulnerability categories"
+            maxLength={500}
+          />
+          <span className="formHint">
+            Optional. Helps you remember what this skill covers.
+          </span>
+        </div>
+        <div className="formGroup" style={{ marginTop: '12px' }}>
+          <label className="formLabel">Category</label>
+          <select
+            className="textInput"
+            value={pendingChatSkillCategory}
+            onChange={(e) => setPendingChatSkillCategory(e.target.value)}
+          >
+            <option value="general">general</option>
+            <option value="vulnerabilities">vulnerabilities</option>
+            <option value="tooling">tooling</option>
+            <option value="scan_modes">scan_modes</option>
+            <option value="frameworks">frameworks</option>
+            <option value="technologies">technologies</option>
+            <option value="protocols">protocols</option>
+            <option value="coordination">coordination</option>
+            <option value="cloud">cloud</option>
+            <option value="mobile">mobile</option>
+            <option value="api_security">api_security</option>
+            <option value="wireless">wireless</option>
+            <option value="network">network</option>
+            <option value="active_directory">active_directory</option>
+            <option value="social_engineering">social_engineering</option>
+            <option value="reporting">reporting</option>
+          </select>
+          <span className="formHint">
+            Categorize this skill for easier browsing.
+          </span>
+        </div>
+      </Modal>
+
+      {/* Chat Skill edit description modal */}
+      <Modal
+        isOpen={editChatDescModal}
+        onClose={() => { setEditChatDescModal(false); setEditingChatSkillId(''); setEditingChatSkillDescription('') }}
+        title="Edit Chat Skill Description"
+        size="small"
+        footer={
+          <>
+            <button
+              className="secondaryButton"
+              onClick={() => { setEditChatDescModal(false); setEditingChatSkillId(''); setEditingChatSkillDescription('') }}
+            >
+              Cancel
+            </button>
+            <button
+              className="primaryButton"
+              disabled={editChatDescSaving}
+              onClick={saveEditChatDescription}
+            >
+              {editChatDescSaving ? <Loader2 size={14} className={styles.spin} /> : <Pencil size={14} />}
+              Save
+            </button>
+          </>
+        }
+      >
+        <div className="formGroup">
+          <label className="formLabel">Description</label>
+          <textarea
+            className="textInput"
+            rows={3}
+            value={editingChatSkillDescription}
+            onChange={(e) => setEditingChatSkillDescription(e.target.value)}
+            placeholder="e.g. Quick reference for OWASP Top 10 vulnerability categories"
+            maxLength={500}
+            autoFocus
+          />
+          <span className="formHint">
+            Optional description to help you remember what this skill covers.
           </span>
         </div>
       </Modal>

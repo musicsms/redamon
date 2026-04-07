@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 DANGEROUS_TOOLS = frozenset({
     'execute_nmap', 'execute_naabu', 'execute_nuclei', 'execute_curl',
     'msf_restart', 'kali_shell', 'metasploit_console', 'execute_code',
-    'execute_hydra', 'execute_playwright',
+    'execute_hydra', 'execute_playwright', 'execute_wpscan',
 })
 
 # =============================================================================
@@ -82,10 +82,11 @@ DEFAULT_AGENT_SETTINGS: dict[str, Any] = {
         'query_graph': ['informational', 'exploitation', 'post_exploitation'],
         'execute_curl': ['informational', 'exploitation', 'post_exploitation'],
         'execute_naabu': ['informational', 'exploitation'],
+        'execute_wpscan': ['informational', 'exploitation'],
         'execute_nmap': ['informational', 'exploitation', 'post_exploitation'],
         'execute_nuclei': ['informational', 'exploitation'],
         'kali_shell': ['informational', 'exploitation', 'post_exploitation'],
-        'execute_code': ['exploitation', 'post_exploitation'],
+        'execute_code': ['informational', 'exploitation', 'post_exploitation'],
         'execute_playwright': ['informational', 'exploitation', 'post_exploitation'],
         'execute_hydra': ['exploitation', 'post_exploitation'],
         'metasploit_console': ['exploitation', 'post_exploitation'],

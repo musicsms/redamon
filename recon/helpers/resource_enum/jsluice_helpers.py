@@ -1,7 +1,7 @@
 """
 RedAmon - jsluice Helpers for Resource Enumeration
 ===================================================
-Passive JavaScript analysis using jsluice to extract URLs, paths, and secrets.
+JavaScript analysis using jsluice to extract URLs, paths, and secrets.
 jsluice is compiled into the recon container (no Docker image needed).
 """
 
@@ -29,9 +29,8 @@ def run_jsluice_analysis(
     """
     Analyze JavaScript files with jsluice to extract URLs, endpoints, and secrets.
 
-    This is a passive analysis step: it downloads JS files already discovered
-    by Katana/Hakrawler and analyzes their contents. No additional crawling
-    or traffic beyond fetching the JS files themselves.
+    Downloads JS files already discovered by Katana/Hakrawler and analyzes
+    their contents. Sends HTTP requests to the target to fetch each JS file.
 
     Args:
         discovered_urls: All URLs discovered by crawlers (filtered to .js)

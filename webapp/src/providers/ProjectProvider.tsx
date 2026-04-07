@@ -98,7 +98,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (project) {
       localStorage.setItem(STORAGE_KEY_PROJECT, project.id)
       // Update URL without navigation if we're on a page that uses project context
-      if (pathname.startsWith('/graph') || pathname.startsWith('/projects') || pathname.startsWith('/insights')) {
+      if (pathname.startsWith('/graph') || pathname.startsWith('/projects') || pathname.startsWith('/insights') || pathname.startsWith('/js-recon')) {
         const params = new URLSearchParams(searchParams.toString())
         params.set('project', project.id)
         router.replace(`${pathname}?${params.toString()}`, { scroll: false })

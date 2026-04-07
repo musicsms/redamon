@@ -27,10 +27,18 @@ export function HttpxSection({ data, updateField }: HttpxSectionProps) {
           <NodeInfoTooltip section="Httpx" />
           <span className={styles.badgeActive}>Active</span>
         </h2>
-        <ChevronDown
-          size={16}
-          className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
-        />
+        <div className={styles.sectionHeaderRight}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Toggle
+              checked={data.httpxEnabled}
+              onChange={(checked) => updateField('httpxEnabled', checked)}
+            />
+          </div>
+          <ChevronDown
+            size={16}
+            className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
+          />
+        </div>
       </div>
 
       {isOpen && (
@@ -38,6 +46,8 @@ export function HttpxSection({ data, updateField }: HttpxSectionProps) {
           <p className={styles.sectionDescription}>
             HTTP probing and fingerprinting using httpx. Validates live web services, extracts metadata like server headers, technologies, and TLS certificates. Integrates Wappalyzer for comprehensive technology detection.
           </p>
+          {data.httpxEnabled && (
+          <>
           <div className={styles.fieldRow}>
             <div className={styles.fieldGroup}>
               <label className={styles.fieldLabel}>Threads</label>
@@ -533,6 +543,8 @@ export function HttpxSection({ data, updateField }: HttpxSectionProps) {
               disabled
             />
           </div>
+          </>
+          )}
         </div>
       )}
     </div>

@@ -120,10 +120,18 @@ export function NucleiSection({ data, updateField }: NucleiSectionProps) {
           <NodeInfoTooltip section="Nuclei" />
           <span className={styles.badgeActive}>Active</span>
         </h2>
-        <ChevronDown
-          size={16}
-          className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
-        />
+        <div className={styles.sectionHeaderRight}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <Toggle
+              checked={data.nucleiEnabled}
+              onChange={(checked) => updateField('nucleiEnabled', checked)}
+            />
+          </div>
+          <ChevronDown
+            size={16}
+            className={`${styles.sectionIcon} ${isOpen ? styles.sectionIconOpen : ''}`}
+          />
+        </div>
       </div>
 
       {isOpen && (
@@ -131,6 +139,8 @@ export function NucleiSection({ data, updateField }: NucleiSectionProps) {
           <p className={styles.sectionDescription}>
             Template-based vulnerability scanning using ProjectDiscovery's Nuclei. Runs thousands of security checks against discovered endpoints to identify CVEs, misconfigurations, exposed panels, and other security issues.
           </p>
+          {data.nucleiEnabled && (
+          <>
           <div className={styles.subSection}>
             <h3 className={styles.subSectionTitle}>Severity Levels</h3>
             <p className={styles.fieldHint} style={{ marginBottom: '0.5rem' }}>Filter vulnerabilities by severity. Exclude &ldquo;info&rdquo; for production scans</p>
@@ -512,6 +522,8 @@ export function NucleiSection({ data, updateField }: NucleiSectionProps) {
               disabled
             />
           </div>
+          </>
+          )}
         </div>
       )}
     </div>

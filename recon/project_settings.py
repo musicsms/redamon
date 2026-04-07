@@ -80,6 +80,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'MASSCAN_EXCLUDE_TARGETS': '',
 
     # httpx HTTP Probing
+    'HTTPX_ENABLED': True,
     'HTTPX_DOCKER_IMAGE': 'projectdiscovery/httpx:latest',
     'HTTPX_THREADS': 50,
     'HTTPX_TIMEOUT': 10,
@@ -139,6 +140,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'BANNER_GRAB_MAX_LENGTH': 500,
 
     # Nuclei Vulnerability Scanner
+    'NUCLEI_ENABLED': True,
     'NUCLEI_SEVERITY': ['critical', 'high', 'medium', 'low'],
     'NUCLEI_TEMPLATES': [],
     'NUCLEI_EXCLUDE_TEMPLATES': [],
@@ -269,6 +271,33 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'JSLUICE_EXTRACT_SECRETS': True,
     'JSLUICE_CONCURRENCY': 5,
 
+    # ========== JS RECON SCANNER ==========
+    'JS_RECON_ENABLED': False,
+    'JS_RECON_MAX_FILES': 500,
+    'JS_RECON_TIMEOUT': 900,
+    'JS_RECON_CONCURRENCY': 10,
+    'JS_RECON_VALIDATE_KEYS': True,
+    'JS_RECON_VALIDATION_TIMEOUT': 5,
+    'JS_RECON_EXTRACT_ENDPOINTS': True,
+    'JS_RECON_REGEX_PATTERNS': True,
+    'JS_RECON_SOURCE_MAPS': True,
+    'JS_RECON_DEPENDENCY_CHECK': True,
+    'JS_RECON_DOM_SINKS': True,
+    'JS_RECON_FRAMEWORK_DETECT': True,
+    'JS_RECON_DEV_COMMENTS': True,
+    'JS_RECON_INCLUDE_CHUNKS': True,
+    'JS_RECON_INCLUDE_FRAMEWORK_JS': True,
+    'JS_RECON_INCLUDE_ARCHIVED_JS': True,
+    'JS_RECON_MIN_CONFIDENCE': 'low',
+    'JS_RECON_STANDALONE_CRAWL_DEPTH': 3,
+    'JS_RECON_STANDALONE_CRAWL_SCOPE': 'subdomain',
+    'JS_RECON_UPLOADED_FILES': [],
+    'JS_RECON_CUSTOM_PATTERNS': '',
+    'JS_RECON_CUSTOM_SOURCEMAP_PATHS': '',
+    'JS_RECON_CUSTOM_PACKAGES': '',
+    'JS_RECON_CUSTOM_ENDPOINT_KEYWORDS': '',
+    'JS_RECON_CUSTOM_FRAMEWORKS': '',
+
     # FFuf Directory Fuzzer
     'FFUF_ENABLED': False,
     'FFUF_WORDLIST': '/usr/share/seclists/Discovery/Web-Content/common.txt',
@@ -329,6 +358,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'NVD_API_KEY': '',  # Configured in Global Settings → Tool API Keys
 
     # MITRE CWE/CAPEC Enrichment
+    'MITRE_ENABLED': True,
     'MITRE_AUTO_UPDATE_DB': True,
     'MITRE_INCLUDE_CWE': True,
     'MITRE_INCLUDE_CAPEC': True,
@@ -370,6 +400,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'SECURITY_CHECK_MAX_WORKERS': 10,
 
     # Shodan Pipeline Enrichment
+    'SHODAN_ENABLED': True,
     'SHODAN_HOST_LOOKUP': True,
     'SHODAN_REVERSE_DNS': True,
     'SHODAN_DOMAIN_DNS': False,
@@ -382,6 +413,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'URLSCAN_MAX_RESULTS': 5000,
 
     # OSINT & Threat Intelligence Enrichment
+    'OSINT_ENRICHMENT_ENABLED': False,
     'CENSYS_ENABLED': False,
     'CENSYS_API_TOKEN': '',
     'CENSYS_ORG_ID': '',
@@ -416,6 +448,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'UNCOVER_ONYPHE_API_KEY': '',
     'UNCOVER_DRIFTNET_API_KEY': '',
 
+    # Subdomain Discovery
+    'SUBDOMAIN_DISCOVERY_ENABLED': True,
+
     # Subdomain Discovery Tool Toggles
     'CRTSH_ENABLED': True,
     'CRTSH_MAX_RESULTS': 5000,
@@ -433,6 +468,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     'AMASS_TIMEOUT': 10,
     'AMASS_ACTIVE': True,
     'AMASS_BRUTE': False,
+    'AMASS_BRUTE_WORDLISTS': ['default'],
     'AMASS_DOCKER_IMAGE': 'caffix/amass:latest',
 
     # Puredns (wildcard filtering — runs after discovery, before DNS resolution)
@@ -577,6 +613,7 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['NMAP_HOST_TIMEOUT'] = project.get('nmapHostTimeout', DEFAULT_SETTINGS['NMAP_HOST_TIMEOUT'])
 
     # httpx HTTP Probing
+    settings['HTTPX_ENABLED'] = project.get('httpxEnabled', DEFAULT_SETTINGS['HTTPX_ENABLED'])
     settings['HTTPX_DOCKER_IMAGE'] = project.get('httpxDockerImage', DEFAULT_SETTINGS['HTTPX_DOCKER_IMAGE'])
     settings['HTTPX_THREADS'] = project.get('httpxThreads', DEFAULT_SETTINGS['HTTPX_THREADS'])
     settings['HTTPX_TIMEOUT'] = project.get('httpxTimeout', DEFAULT_SETTINGS['HTTPX_TIMEOUT'])
@@ -624,6 +661,7 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['BANNER_GRAB_MAX_LENGTH'] = project.get('bannerGrabMaxLength', DEFAULT_SETTINGS['BANNER_GRAB_MAX_LENGTH'])
 
     # Nuclei Vulnerability Scanner
+    settings['NUCLEI_ENABLED'] = project.get('nucleiEnabled', DEFAULT_SETTINGS['NUCLEI_ENABLED'])
     settings['NUCLEI_SEVERITY'] = project.get('nucleiSeverity', DEFAULT_SETTINGS['NUCLEI_SEVERITY'])
     settings['NUCLEI_TEMPLATES'] = project.get('nucleiTemplates', DEFAULT_SETTINGS['NUCLEI_TEMPLATES'])
     settings['NUCLEI_EXCLUDE_TEMPLATES'] = project.get('nucleiExcludeTemplates', DEFAULT_SETTINGS['NUCLEI_EXCLUDE_TEMPLATES'])
@@ -677,6 +715,33 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['JSLUICE_EXTRACT_URLS'] = project.get('jsluiceExtractUrls', DEFAULT_SETTINGS['JSLUICE_EXTRACT_URLS'])
     settings['JSLUICE_EXTRACT_SECRETS'] = project.get('jsluiceExtractSecrets', DEFAULT_SETTINGS['JSLUICE_EXTRACT_SECRETS'])
     settings['JSLUICE_CONCURRENCY'] = project.get('jsluiceConcurrency', DEFAULT_SETTINGS['JSLUICE_CONCURRENCY'])
+
+    # JS Recon Scanner
+    settings['JS_RECON_ENABLED'] = project.get('jsReconEnabled', DEFAULT_SETTINGS['JS_RECON_ENABLED'])
+    settings['JS_RECON_MAX_FILES'] = project.get('jsReconMaxFiles', DEFAULT_SETTINGS['JS_RECON_MAX_FILES'])
+    settings['JS_RECON_TIMEOUT'] = project.get('jsReconTimeout', DEFAULT_SETTINGS['JS_RECON_TIMEOUT'])
+    settings['JS_RECON_CONCURRENCY'] = project.get('jsReconConcurrency', DEFAULT_SETTINGS['JS_RECON_CONCURRENCY'])
+    settings['JS_RECON_VALIDATE_KEYS'] = project.get('jsReconValidateKeys', DEFAULT_SETTINGS['JS_RECON_VALIDATE_KEYS'])
+    settings['JS_RECON_VALIDATION_TIMEOUT'] = project.get('jsReconValidationTimeout', DEFAULT_SETTINGS['JS_RECON_VALIDATION_TIMEOUT'])
+    settings['JS_RECON_EXTRACT_ENDPOINTS'] = project.get('jsReconExtractEndpoints', DEFAULT_SETTINGS['JS_RECON_EXTRACT_ENDPOINTS'])
+    settings['JS_RECON_REGEX_PATTERNS'] = project.get('jsReconRegexPatterns', DEFAULT_SETTINGS['JS_RECON_REGEX_PATTERNS'])
+    settings['JS_RECON_SOURCE_MAPS'] = project.get('jsReconSourceMaps', DEFAULT_SETTINGS['JS_RECON_SOURCE_MAPS'])
+    settings['JS_RECON_DEPENDENCY_CHECK'] = project.get('jsReconDependencyCheck', DEFAULT_SETTINGS['JS_RECON_DEPENDENCY_CHECK'])
+    settings['JS_RECON_DOM_SINKS'] = project.get('jsReconDomSinks', DEFAULT_SETTINGS['JS_RECON_DOM_SINKS'])
+    settings['JS_RECON_FRAMEWORK_DETECT'] = project.get('jsReconFrameworkDetect', DEFAULT_SETTINGS['JS_RECON_FRAMEWORK_DETECT'])
+    settings['JS_RECON_DEV_COMMENTS'] = project.get('jsReconDevComments', DEFAULT_SETTINGS['JS_RECON_DEV_COMMENTS'])
+    settings['JS_RECON_INCLUDE_CHUNKS'] = project.get('jsReconIncludeChunks', DEFAULT_SETTINGS['JS_RECON_INCLUDE_CHUNKS'])
+    settings['JS_RECON_INCLUDE_FRAMEWORK_JS'] = project.get('jsReconIncludeFrameworkJs', DEFAULT_SETTINGS['JS_RECON_INCLUDE_FRAMEWORK_JS'])
+    settings['JS_RECON_INCLUDE_ARCHIVED_JS'] = project.get('jsReconIncludeArchivedJs', DEFAULT_SETTINGS['JS_RECON_INCLUDE_ARCHIVED_JS'])
+    settings['JS_RECON_MIN_CONFIDENCE'] = project.get('jsReconMinConfidence', DEFAULT_SETTINGS['JS_RECON_MIN_CONFIDENCE'])
+    settings['JS_RECON_STANDALONE_CRAWL_DEPTH'] = project.get('jsReconStandaloneCrawlDepth', DEFAULT_SETTINGS['JS_RECON_STANDALONE_CRAWL_DEPTH'])
+    settings['JS_RECON_STANDALONE_CRAWL_SCOPE'] = project.get('jsReconStandaloneCrawlScope', DEFAULT_SETTINGS['JS_RECON_STANDALONE_CRAWL_SCOPE'])
+    settings['JS_RECON_UPLOADED_FILES'] = project.get('jsReconUploadedFiles', DEFAULT_SETTINGS['JS_RECON_UPLOADED_FILES'])
+    settings['JS_RECON_CUSTOM_PATTERNS'] = project.get('jsReconCustomPatterns', DEFAULT_SETTINGS['JS_RECON_CUSTOM_PATTERNS'])
+    settings['JS_RECON_CUSTOM_SOURCEMAP_PATHS'] = project.get('jsReconCustomSourcemapPaths', DEFAULT_SETTINGS['JS_RECON_CUSTOM_SOURCEMAP_PATHS'])
+    settings['JS_RECON_CUSTOM_PACKAGES'] = project.get('jsReconCustomPackages', DEFAULT_SETTINGS['JS_RECON_CUSTOM_PACKAGES'])
+    settings['JS_RECON_CUSTOM_ENDPOINT_KEYWORDS'] = project.get('jsReconCustomEndpointKeywords', DEFAULT_SETTINGS['JS_RECON_CUSTOM_ENDPOINT_KEYWORDS'])
+    settings['JS_RECON_CUSTOM_FRAMEWORKS'] = project.get('jsReconCustomFrameworks', DEFAULT_SETTINGS['JS_RECON_CUSTOM_FRAMEWORKS'])
 
     # FFuf Directory Fuzzer
     settings['FFUF_ENABLED'] = project.get('ffufEnabled', DEFAULT_SETTINGS['FFUF_ENABLED'])
@@ -763,6 +828,7 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['CVE_LOOKUP_MIN_CVSS'] = project.get('cveLookupMinCvss', DEFAULT_SETTINGS['CVE_LOOKUP_MIN_CVSS'])
 
     # MITRE CWE/CAPEC Enrichment
+    settings['MITRE_ENABLED'] = project.get('mitreEnabled', DEFAULT_SETTINGS['MITRE_ENABLED'])
     settings['MITRE_AUTO_UPDATE_DB'] = project.get('mitreAutoUpdateDb', DEFAULT_SETTINGS['MITRE_AUTO_UPDATE_DB'])
     settings['MITRE_INCLUDE_CWE'] = project.get('mitreIncludeCwe', DEFAULT_SETTINGS['MITRE_INCLUDE_CWE'])
     settings['MITRE_INCLUDE_CAPEC'] = project.get('mitreIncludeCapec', DEFAULT_SETTINGS['MITRE_INCLUDE_CAPEC'])
@@ -804,6 +870,7 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['SECURITY_CHECK_MAX_WORKERS'] = project.get('securityCheckMaxWorkers', DEFAULT_SETTINGS['SECURITY_CHECK_MAX_WORKERS'])
 
     # Shodan Pipeline Enrichment
+    settings['SHODAN_ENABLED'] = project.get('shodanEnabled', DEFAULT_SETTINGS['SHODAN_ENABLED'])
     settings['SHODAN_HOST_LOOKUP'] = project.get('shodanHostLookup', DEFAULT_SETTINGS['SHODAN_HOST_LOOKUP'])
     settings['SHODAN_REVERSE_DNS'] = project.get('shodanReverseDns', DEFAULT_SETTINGS['SHODAN_REVERSE_DNS'])
     settings['SHODAN_DOMAIN_DNS'] = project.get('shodanDomainDns', DEFAULT_SETTINGS['SHODAN_DOMAIN_DNS'])
@@ -814,6 +881,7 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['URLSCAN_MAX_RESULTS'] = project.get('urlscanMaxResults', DEFAULT_SETTINGS['URLSCAN_MAX_RESULTS'])
 
     # OSINT & Threat Intelligence Enrichment
+    settings['OSINT_ENRICHMENT_ENABLED'] = project.get('osintEnrichmentEnabled', DEFAULT_SETTINGS['OSINT_ENRICHMENT_ENABLED'])
     settings['CENSYS_ENABLED'] = project.get('censysEnabled', DEFAULT_SETTINGS['CENSYS_ENABLED'])
     settings['FOFA_ENABLED'] = project.get('fofaEnabled', DEFAULT_SETTINGS['FOFA_ENABLED'])
     settings['FOFA_MAX_RESULTS'] = int(project.get('fofaMaxResults', DEFAULT_SETTINGS['FOFA_MAX_RESULTS']) or DEFAULT_SETTINGS['FOFA_MAX_RESULTS'])
@@ -828,6 +896,7 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['UNCOVER_DOCKER_IMAGE'] = project.get('uncoverDockerImage', DEFAULT_SETTINGS['UNCOVER_DOCKER_IMAGE'])
 
     # Subdomain Discovery Tool Toggles
+    settings['SUBDOMAIN_DISCOVERY_ENABLED'] = project.get('subdomainDiscoveryEnabled', DEFAULT_SETTINGS['SUBDOMAIN_DISCOVERY_ENABLED'])
     settings['CRTSH_ENABLED'] = project.get('crtshEnabled', DEFAULT_SETTINGS['CRTSH_ENABLED'])
     settings['CRTSH_MAX_RESULTS'] = project.get('crtshMaxResults', DEFAULT_SETTINGS['CRTSH_MAX_RESULTS'])
     settings['HACKERTARGET_ENABLED'] = project.get('hackerTargetEnabled', DEFAULT_SETTINGS['HACKERTARGET_ENABLED'])
@@ -842,6 +911,7 @@ def fetch_project_settings(project_id: str, webapp_url: str) -> dict[str, Any]:
     settings['AMASS_TIMEOUT'] = project.get('amassTimeout', DEFAULT_SETTINGS['AMASS_TIMEOUT'])
     settings['AMASS_ACTIVE'] = project.get('amassActive', DEFAULT_SETTINGS['AMASS_ACTIVE'])
     settings['AMASS_BRUTE'] = project.get('amassBrute', DEFAULT_SETTINGS['AMASS_BRUTE'])
+    settings['AMASS_BRUTE_WORDLISTS'] = project.get('amassBruteWordlists', DEFAULT_SETTINGS['AMASS_BRUTE_WORDLISTS'])
     settings['AMASS_DOCKER_IMAGE'] = project.get('amassDockerImage', DEFAULT_SETTINGS['AMASS_DOCKER_IMAGE'])
 
     # Puredns (wildcard filtering)
@@ -1117,7 +1187,7 @@ def apply_stealth_overrides(settings: dict[str, Any]) -> dict[str, Any]:
     # --- Hakrawler: DISABLED (active crawler, no rate-limit control) ---
     settings['HAKRAWLER_ENABLED'] = False
 
-    # --- jsluice: keep enabled (passive) but reduce file count ---
+    # --- jsluice: keep enabled but reduce file count ---
     settings['JSLUICE_MAX_FILES'] = 20
 
     # --- FFuf: DISABLED (active directory brute-force) ---
@@ -1169,8 +1239,14 @@ def apply_stealth_overrides(settings: dict[str, Any]) -> dict[str, Any]:
     # --- Masscan: DISABLED (active SYN scanning) ---
     settings['MASSCAN_ENABLED'] = False
 
+    # --- JS Recon: disable validation (makes outbound API calls), reduce scope ---
+    settings['JS_RECON_MAX_FILES'] = 50
+    settings['JS_RECON_VALIDATE_KEYS'] = False
+    settings['JS_RECON_INCLUDE_CHUNKS'] = False
+    settings['JS_RECON_INCLUDE_FRAMEWORK_JS'] = False
+
     logger.info("Stealth overrides applied: Naabu=passive, Masscan=OFF, httpx=low-rate, Katana=minimal, "
                 "Nuclei=no-DAST, Kiterunner=OFF, BannerGrab=OFF, BruteForce=OFF, "
-                "ActiveSecurityChecks=OFF")
+                "ActiveSecurityChecks=OFF, JsRecon=reduced")
 
     return settings

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from './neo4j'
 import { formatGraphRecords } from './format'
+import { getCached, setCached, invalidateCache } from './cache'
+
+const GRAPH_PERF_DEBUG = true
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -13,9 +16,48 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  if (GRAPH_PERF_DEBUG) console.log(`[GraphPerf:API] GET /api/graph projectId=${projectId}`)
+
+  // Check If-None-Match header for ETag-based conditional request
+  const ifNoneMatch = request.headers.get('if-none-match')
+
+  // Check server-side cache
+  const cached = getCached(projectId)
+  if (cached) {
+    const cacheAge = Date.now() - cached.timestamp
+    if (GRAPH_PERF_DEBUG) console.log(`[GraphPerf:API] Cache HIT for ${projectId} (age=${cacheAge}ms)`)
+
+    // If client has same ETag, return 304
+    if (ifNoneMatch && ifNoneMatch === `"${cached.etag}"`) {
+      if (GRAPH_PERF_DEBUG) console.log(`[GraphPerf:API] 304 Not Modified -- ETag matched for ${projectId}`)
+      return new NextResponse(null, {
+        status: 304,
+        headers: {
+          'ETag': `"${cached.etag}"`,
+          'Cache-Control': 'private, max-age=5',
+        },
+      })
+    }
+
+    // Return cached data with ETag
+    return NextResponse.json(
+      { nodes: cached.data.nodes, links: cached.data.links, projectId },
+      {
+        headers: {
+          'ETag': `"${cached.etag}"`,
+          'Cache-Control': 'private, max-age=5',
+        },
+      }
+    )
+  }
+
+  if (GRAPH_PERF_DEBUG) console.log(`[GraphPerf:API] Cache MISS for ${projectId}`)
+
   const session = getSession()
 
   try {
+    const queryStart = Date.now()
+
     // Query all nodes and relationships connected to the project
     // Uses UNION to capture:
     // 1. Direct relationships where source has project_id
@@ -119,12 +161,39 @@ export async function GET(request: NextRequest) {
       { projectId }
     )
 
+    const queryEnd = Date.now()
+    if (GRAPH_PERF_DEBUG) console.log(`[GraphPerf:API] Neo4j query completed in ${queryEnd - queryStart}ms -- ${result.records.length} records`)
+
     const { nodes, links } = formatGraphRecords(result.records)
 
-    return NextResponse.json({
-      nodes,
-      links,
-      projectId,
+    const formatEnd = Date.now()
+    if (GRAPH_PERF_DEBUG) console.log(`[GraphPerf:API] Formatted ${nodes.length} nodes, ${links.length} links in ${formatEnd - queryEnd}ms`)
+
+    // Cache the result and get ETag
+    const etag = setCached(projectId, { nodes, links })
+
+    // Check if client already has this version
+    if (ifNoneMatch && ifNoneMatch === `"${etag}"`) {
+      if (GRAPH_PERF_DEBUG) console.log(`[GraphPerf:API] 304 Not Modified -- fresh data matches client ETag for ${projectId}`)
+      return new NextResponse(null, {
+        status: 304,
+        headers: {
+          'ETag': `"${etag}"`,
+          'Cache-Control': 'private, max-age=5',
+        },
+      })
+    }
+
+    const responseData = JSON.stringify({ nodes, links, projectId })
+    if (GRAPH_PERF_DEBUG) console.log(`[GraphPerf:API] Response size: ${(responseData.length / 1024).toFixed(1)}KB`)
+
+    return new NextResponse(responseData, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'ETag': `"${etag}"`,
+        'Cache-Control': 'private, max-age=5',
+      },
     })
   } catch (error) {
     console.error('Graph query error:', error)
@@ -173,6 +242,9 @@ export async function DELETE(request: NextRequest) {
         { status: 404 }
       )
     }
+
+    // Invalidate cache after deletion
+    invalidateCache(projectId)
 
     return NextResponse.json({ success: true, deleted })
   } catch (error) {

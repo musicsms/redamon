@@ -68,6 +68,8 @@ interface GraphToolbarProps {
   onEmergencyPauseAll?: () => void
   isAnyPipelineRunning?: boolean
   isEmergencyPausing?: boolean
+  // Tunnel status (displayed next to Pause All)
+  tunnelStatus?: { ngrok?: { active: boolean; host?: string; port?: number }; chisel?: { active: boolean; host?: string; port?: number; srvPort?: number } }
   // Agent status
   agentActiveCount?: number
   agentConversations?: Array<{
@@ -142,6 +144,7 @@ export function GraphToolbar({
   onEmergencyPauseAll,
   isAnyPipelineRunning = false,
   isEmergencyPausing = false,
+  tunnelStatus,
   // Agent status
   agentActiveCount = 0,
   agentConversations = [],
@@ -179,30 +182,6 @@ export function GraphToolbar({
 
   return (
     <div className={styles.toolbar}>
-      <div className={styles.section}>
-        <span className={styles.sectionLabel}>View Mode</span>
-        <Toggle
-          checked={is3D}
-          onChange={onToggle3D}
-          labelOff="2D"
-          labelOn="3D"
-          aria-label="Toggle 2D/3D view"
-        />
-      </div>
-
-      <div className={styles.divider} />
-
-      <div className={styles.section}>
-        <span className={styles.sectionLabel}>Labels</span>
-        <Toggle
-          checked={showLabels}
-          onChange={onToggleLabels}
-          labelOff="Off"
-          labelOn="On"
-          aria-label="Toggle labels"
-        />
-      </div>
-
       {targetDomain && (
         <>
           <div className={styles.divider} />
@@ -257,6 +236,23 @@ export function GraphToolbar({
         <span>{isEmergencyPausing ? 'PAUSING...' : 'PAUSE ALL'}</span>
       </button>
 
+      {(tunnelStatus?.ngrok?.active || tunnelStatus?.chisel?.active) && (
+        <div className={styles.tunnelBadges}>
+          {tunnelStatus.ngrok?.active && (
+            <span className={styles.tunnelBadge} title={`Tunnel active: ${tunnelStatus.ngrok.host}:${tunnelStatus.ngrok.port}`}>
+              <span className={styles.tunnelDot} />
+              ngrok
+            </span>
+          )}
+          {tunnelStatus.chisel?.active && (
+            <span className={styles.tunnelBadge} title={`Tunnel active: ${tunnelStatus.chisel.host}:${tunnelStatus.chisel.port}`}>
+              <span className={styles.tunnelDot} />
+              chisel
+            </span>
+          )}
+        </div>
+      )}
+
       <div className={styles.spacer} />
 
       <div className={styles.actionsRight}>
@@ -275,7 +271,7 @@ export function GraphToolbar({
                 ) : (
                   <Play size={14} />
                 )}
-                <span>{isReconStopping ? 'Stopping...' : isReconBusy ? 'Running...' : isReconPaused ? 'Resume' : 'Start Recon'}</span>
+                <span>{isReconStopping ? 'Stopping...' : isReconBusy ? 'Running...' : isReconPaused ? 'Resume' : 'Start Recon Pipeline'}</span>
               </button>
 
               {isReconBusy && (

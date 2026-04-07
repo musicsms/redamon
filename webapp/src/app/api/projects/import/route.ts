@@ -313,6 +313,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Import user project presets (if present)
+    const presetsFile = zip.file('presets/user_project_presets.json')
+    if (presetsFile) {
+      const presets = JSON.parse(await presetsFile.async('text'))
+      for (const preset of presets) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { id: _id, userId: _uid, createdAt: _ca, updatedAt: _ua, ...fields } = preset
+        await prisma.userProjectPreset.create({
+          data: { ...fields, userId },
+        })
+      }
+      (stats as Record<string, number>).userPresets = presets.length
+    }
+
     // Import Neo4j data
     const nodesFile = zip.file('neo4j/nodes.json')
     const relsFile = zip.file('neo4j/relationships.json')

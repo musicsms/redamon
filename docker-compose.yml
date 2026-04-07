@@ -446,6 +446,8 @@ services:
       - ./github_secret_hunt/output:/data/github-hunt-output:ro
       - ./trufflehog_scan/output:/data/trufflehog-output:ro
       - report_data:/data/reports
+      - js_recon_uploads:/data/js-recon-uploads
+      - js_recon_custom:/data/js-recon-custom
       - ./VERSION:/app/VERSION:ro
     depends_on:
       postgres:
@@ -484,6 +486,8 @@ volumes:
   postgres_data:
   neo4j_data:
   report_data:
+  js_recon_uploads:
+  js_recon_custom:
   neo4j_logs:
   neo4j_import:
   neo4j_plugins:
